@@ -1,0 +1,125 @@
+%option noyywrap
+%option never-interactive
+
+%{
+#include "ast.h"
+#include "policy.h"
+#include "parser.hpp"
+#include <iostream>
+
+using namespace std;
+
+const char* yyfilename="";
+int yylinenum= 1, yycolumnno = 0;
+
+int last_ret;
+
+#ifdef DEBUG_LEXER
+#ifdef LEXER_OUT
+ofstream lexOutStr(LEXER_OUT);
+ostream& lexOut = lexOutStr;
+#else
+ostream& lexOut = cout;
+#endif
+#define yylex_ret(x)  do {       lexOut << #x << endl; return x; } while(0)
+#define yylex_retval(x, y) do { lexOut << #x << "\t``"<< y << "''\n"; return x; } while(0)
+#else
+#define yylex_ret(x) \
+    do { last_ret = x; return x; } while(0)
+#define yylex_retval(x, y) yylex_ret(x)
+
+#endif
+
+static char*
+copy_str() {
+  int slen = yyleng+1;
+  char *rv = new char[slen];
+  strncpy(rv, yytext, yyleng);
+  rv[slen-1] = '\0';
+  return rv;
+}
+
+
+%}
+
+
+/* Definitions */
+
+DECIMAL_DIGIT  [0-9]
+HEX_DIGIT      [0-9a-fA-F]
+UINTNUM		   {DECIMAL_DIGIT}+
+HEX_UINTNUM    0x{HEX_DIGIT}+
+ALPHABET       [a-zA-Z_]
+
+%%
+
+ /**************** Recognize operators ****************/
+":"     { yylex_ret(TOK_COLON);  }
+","     { yylex_ret(TOK_COMMA);  }
+";"     { yylex_ret(TOK_SEMICOLON); }
+"("     { yylex_ret(TOK_LPAREN); }
+")"     { yylex_ret(TOK_RPAREN); }
+"{"     { yylex_ret(TOK_LBRACE); }
+"}"     { yylex_ret(TOK_RBRACE); }
+"+"     { yylex_ret(TOK_PLUS);}
+"-"     { yylex_ret(TOK_MINUS);}
+"/"     { yylex_ret(TOK_DIV);}
+"*"     { yylex_ret(TOK_MULT);}
+"%"     { yylex_ret(TOK_MOD);}
+">"     { yylex_ret(TOK_GT); }
+"<"     { yylex_ret(TOK_LT); }
+">="    { yylex_ret(TOK_GE); }
+"<="    { yylex_ret(TOK_LE);}
+"=="    { yylex_ret(TOK_EQ);}
+"="     { yylex_ret(TOK_ASSIGN);}
+"!="    { yylex_ret(TOK_NE);}
+"&&"    { yylex_ret(TOK_AND);}
+"||"    { yylex_ret(TOK_OR);}
+"&"     { yylex_ret(TOK_BITAND);}
+"|"     { yylex_ret(TOK_BITOR);}
+"~"     { yylex_ret(TOK_BITNOT);}
+"^"     { yylex_ret(TOK_BITXOR);}
+"!"     { yylex_ret(TOK_NOT);}
+"<<"    { yylex_ret(TOK_SHL);}
+">>"    { yylex_ret(TOK_SHR);}
+
+
+ /**************** Recognize reserved words ****************/
+
+"def"            { yylex_ret(TOK_DEF); }
+"if"             { yylex_ret(TOK_IF);  }
+"else"           { yylex_ret(TOK_ELSE); }
+"deny"           { yylex_ret(TOK_DENY); }
+"allow"          { yylex_ret(TOK_ALLOW); }
+"all"            { yylex_ret(TOK_ALL); }
+"extend"         { yylex_ret(TOK_EXTEND); }
+
+ /**************** Recognize identifiers ****************/
+
+{ALPHABET}({ALPHABET}|{DECIMAL_DIGIT})*  { 
+                                            yylval.cVal = copy_str();
+                                            yylex_retval(TOK_ID, yylval.cVal); 
+                                         }
+
+ /**************** Recognize integers ****************/
+
+{UINTNUM}       { 
+                  yylval.uVal = strtoul(yytext, NULL, 10); 
+                  yylex_retval(TOK_UINT, yylval.uVal); 
+                }
+
+{HEX_UINTNUM}   { 
+                  yylval.uVal = strtoul(yytext, NULL, 16); 
+                  yylex_retval(TOK_UINT, yylval.uVal); 
+                }
+
+"\n"            {  yylinenum++; }
+[\t\r ]         { /* ignore blanks */ }
+
+ /**************** Unrecognized character ==> error ****************/
+
+. {
+	return TOK_LEX_ERROR;
+}
+
+%%

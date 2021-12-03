@@ -1,0 +1,196 @@
+%{
+#include <iostream>
+#include <string.h>
+#include <assert.h>
+#include <vector>
+#include "error.h"
+#include "ast.h"
+#include "policy.h"
+
+#define prt(x) cout << x << endl;
+
+extern int yylex();
+extern void yyerror(const char *s);
+extern PolicyManager manager;
+using namespace std;
+%}
+
+%union{
+  unsigned int       uVal;
+  char*              cVal;
+  vector<string>*    arglistVal;
+  CompoundStmtNode*  compoundStmtVal;
+  StmtNode*          stmtVal;
+  SyscallCheck*      syscallCheckVal;
+  SyscallExtension*  syscallExtVal;
+  Policy*            policyVal;
+  ExprNode*          exprVal;
+}
+
+/* Operators */
+
+%token TOK_LEX_ERROR TOK_COLON ":" TOK_SEMICOLON ";" TOK_COMMA ","
+%token TOK_LPAREN "(" TOK_RPAREN ")" TOK_LBRACE "{" TOK_RBRACE "}" TOK_PLUS "+" TOK_MINUS "-" 
+%token TOK_MULT "*" TOK_DIV "/" TOK_ASSIGN "=" TOK_AND "&&" TOK_OR "||" TOK_NOT "!" TOK_GT ">" TOK_LT "<"
+%token TOK_EQ "==" TOK_NE "!=" TOK_GE ">=" TOK_LE "<=" TOK_MOD "%" 
+%token TOK_BITAND "&" TOK_BITOR "|" TOK_BITNOT "~" TOK_BITXOR "^" TOK_SHL "<<" TOK_SHR ">>"
+
+/* Key words */
+
+%token TOK_IF "if" TOK_ELSE "else" TOK_ALLOW TOK_DENY TOK_EXTEND TOK_ALL TOK_DEF "def"
+%token TOK_ID TOK_UINT  
+
+
+%type <cVal> TOK_ID 
+%type <uVal> TOK_UINT
+%type <arglistVal> non_empty_arg_list arg_list
+%type <syscallCheckVal> syscall_check_header syscall_check
+%type <syscallExtVal>  syscall_ext
+%type <compoundStmtVal> stmts
+%type <stmtVal> statement assignment_stmt perm_stmt if_body if_stmt
+%type <policyVal> default_pocliy
+%type <exprVal> expr arith_expr invocation_expr  
+/*********************   Precedence and Associativity    ********************/
+%nonassoc "="
+%left "||"
+%left "&&"
+%right "!"
+%nonassoc "==" "!=" "<=" ">=" "<" ">"
+%left "|" "^"
+%left "&" 
+%right "~"
+%left  "<<" ">>"
+%left  "+" "-"
+%left  "*" "/" "%"
+%precedence NEG
+
+
+/**************************************************************************/
+
+%start program
+%%
+
+program: 
+  default_pocliy program_star  { }
+;
+
+
+program_star: /* empty */    
+| program_star pocliy
+;
+
+default_pocliy:
+/* empty */                     { $$ = new Policy(Policy::DEFAULT_DENY);  manager.AddPolicy($$); /* TODO: print warning */}
+| TOK_ALLOW TOK_ALL ";"         { $$ = new Policy(Policy::DEFAULT_ALLOW);  manager.AddPolicy($$); }
+| TOK_DENY  TOK_ALL ";"         { $$ = new Policy(Policy::DEFAULT_DENY);   manager.AddPolicy($$);}
+;
+
+pocliy: 
+  syscall_check        {  }
+| syscall_ext          {  }
+;
+
+/********************************Default Policys********************************/
+
+syscall_check: 
+  syscall_check_header stmts                 { $1->SetStmts($2); $$= $1; }
+;
+
+syscall_check_header:
+  TOK_DEF TOK_ID "(" arg_list ")" ":"        { $$ = new SyscallCheck(nullptr, $2, $4); manager.AddPolicy($$); }
+| TOK_DEF TOK_ID "(" arg_list  error ":"     { errMsg("Error parsing argument list, right parenthesis may be missing"); 
+                                               $$ = new SyscallCheck(nullptr, $2, $4); manager.AddPolicy($$); }
+| TOK_DEF TOK_ID "(" error ")"  ":"          { errMsg("Error parsing argument list"); 
+                                              $$ = new SyscallCheck(nullptr, $2, nullptr); manager.AddPolicy($$);}
+| error TOK_ID "(" arg_list ")" ":"          { errMsg("Error syscall header, missing keyword def"); 
+                                               $$ = new SyscallCheck(nullptr, $2, $4); manager.AddPolicy($$);}
+;
+
+arg_list:
+  /* empty */           {$$ = new vector<string>();}
+|  non_empty_arg_list   {$$ = $1; }         
+;
+
+non_empty_arg_list:
+  non_empty_arg_list "," TOK_ID   { $1->push_back($3); $$ = $1; }
+| TOK_ID                {
+                          vector<string> * args = new vector<string>();
+                          args->push_back($1);
+                          $$ = args;                  
+                        }
+;
+
+stmts:
+  /* empty */           {$$ = new CompoundStmtNode(new vector<StmtNode*>()); }
+| stmts statement       {$$ = $1; $1->AddStmt($2); }
+;
+
+statement:
+  TOK_SEMICOLON   { $$= new StmtNode(); }
+| if_stmt         { $$ = $1; }
+| perm_stmt       { $$ = $1; }
+| assignment_stmt { $$= $1;  }
+;
+
+assignment_stmt:
+  TOK_ID "=" expr ";"  {  $$ = new AssignmentNode($3, $1); }
+;
+
+perm_stmt:
+  TOK_ALLOW ";"     { $$ = new PermNode(PermNode::ALLOW); }
+| TOK_DENY  ";"     { $$ = new PermNode(PermNode::DENY); }
+| error     ";"     { errMsg("Unrecognized action"); }
+;
+
+if_body:
+  "{" stmts "}"     { $$ = $2; }
+| statement         { $$ = $1; }
+;
+
+if_stmt:
+  "if"  "(" expr ")"  if_body                   { $$ = new IfNode($3, $5, nullptr); }
+| "if"  "(" expr ")"  if_body  "else" if_body   { $$ = new IfNode($3, $5, $7); }
+;
+
+expr:  
+  arith_expr         { $$ = $1; }
+| invocation_expr    { $$ = $1; }
+| "(" expr ")"       { $$  = $2; }
+| TOK_ID             { $$ = new RefExprNode($1); }
+| TOK_UINT           { $$ = new ValueNode(new Value((int)$1)); }
+;
+
+invocation_expr:
+  TOK_ID "(" arg_list ")"  { $$ = new InvocationNode($1, $3);}
+| TOK_ID "(" error ")"     { $$ = nullptr; errMsg("Error parsing argument list for function invocation"); }
+;
+
+arith_expr:
+  expr "==" expr     { $$ = new OpNode(OpNode::EQ, $1, $3); }
+| expr ">=" expr     { $$ = new OpNode(OpNode::GE, $1, $3); }
+| expr "<=" expr     { $$ = new OpNode(OpNode::LE, $1, $3); }
+| expr "!=" expr     { $$ = new OpNode(OpNode::NE, $1, $3); }
+| expr ">"  expr     { $$ = new OpNode(OpNode::GT, $1, $3); }
+| expr "<"  expr     { $$ = new OpNode(OpNode::LT, $1, $3); }
+| expr "&&" expr     { $$ = new OpNode(OpNode::AND, $1, $3); }
+| expr "||"  expr    { $$ = new OpNode(OpNode::OR, $1, $3); }
+| "!"  expr     { $$ = new OpNode(OpNode::NOT, $2); }
+| TOK_MINUS expr %prec NEG  { $$ = new OpNode(OpNode::UMINUS, $2, nullptr); }
+| expr "+" expr     { $$ = new OpNode(OpNode::PLUS, $1, $3); }
+| expr "-" expr     { $$ = new OpNode(OpNode::MINUS, $1, $3); }
+| expr "*" expr     { $$ = new OpNode(OpNode::MULT, $1, $3); }
+| expr "/"  expr    { $$ = new OpNode(OpNode::DIV, $1, $3); }
+| expr "%"  expr    { $$ = new OpNode(OpNode::MOD, $1, $3); }
+| expr "~" expr     { $$ = new OpNode(OpNode::BITNOT, $1, $3); }
+| expr "&" expr     { $$ = new OpNode(OpNode::BITAND, $1, $3); }
+| expr "|"  expr    { $$ = new OpNode(OpNode::BITOR, $1, $3); }
+| expr "^"  expr    { $$ = new OpNode(OpNode::BITXOR, $1, $3); }
+| expr "<<"  expr    { $$ = new OpNode(OpNode::SHL, $1, $3); }
+| expr ">>"  expr    { $$ = new OpNode(OpNode::SHR, $1, $3); }
+;
+
+syscall_ext:
+  TOK_EXTEND TOK_ID ":" TOK_ID  { $$ = new SyscallExtension($2, $4); manager.AddPolicy($$); }
+;
+%%
+

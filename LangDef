@@ -1,0 +1,44 @@
+<program> ::=   <program> <policy>
+<policy>  ::=   <defaults> 
+              | <syscall_check>
+              | <syscall_ext>
+<defaults> ::=   deny all
+              | allow all
+
+<syscall_check> ::= name ( <arglist> ): <stmts> 
+<syscall_ext>  ::= extend name name
+
+<arglist> ::=   <arglist> arg
+             |  nil
+
+<compound_stmts> ::= { <stmts> }
+
+<stmts> ::=   <stmts> <stmt>
+            |  nil
+
+<stmt>  ::=   <ifstmt>
+            | <perm_stmt>
+            | <assignment_stmt>
+
+<assignment_stmt> ::= var = <expression>
+
+<if_body>  ::=   <compound_stmts> 
+               | <stmt>
+
+
+<perm_stmt> ::=    deny ;
+                |  allow ;
+
+<ifstmt>  ::=     if <expression> <if_body>
+              |   if <expression> <if_body> else <if_body>
+
+
+<expression> ::=   <arith_expression>
+                 | <func_expression>
+
+<func_expression> ::=  name(<arglist>)
+
+<arith_expression> ::=    <expression> + <expression>
+                        | <expression> - <expression>
+                        | <expression> * <expression>
+                         ....
