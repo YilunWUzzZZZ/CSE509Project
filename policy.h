@@ -2,6 +2,8 @@
 #define POLICY_Y
 
 #include "ast.h"
+#include "code_gen.h"
+#include <unordered_map>
 class BasicBlock;
 
 
@@ -23,17 +25,24 @@ class Policy {
 };
 
 
+class PolicyManager;
 class SyscallCheck: public Policy {
  private:
   CompoundStmtNode* stmts_;
   string  syscall_;
   vector<string> *args_;
+  unordered_map<string, int> arg_index_;
   list<Instruction*> IR_;
   vector<BasicBlock*> * CFG_;
+  list<BPF_Filter> *bpf_filters_;
  public:
-
+  friend class PolicyManager;
   SyscallCheck(CompoundStmtNode * stmts, const string & syscall, vector<string> * args = nullptr): 
-    Policy(PolicyType::SYSCALL_CHECK), stmts_(stmts), syscall_(syscall), args_(args) { }
+    Policy(PolicyType::SYSCALL_CHECK), stmts_(stmts), syscall_(syscall), args_(args) { 
+      for (size_t i=0; i<args_->size(); i++) {
+        arg_index_[(*args_)[i]] = i; 
+      }
+    }
   ~SyscallCheck() {}
   
   inline bool HasArgument(const string arg) {
@@ -70,6 +79,7 @@ class PolicyManager {
  private:
   vector<Policy*> policys_;
   Policy*  cur_policy_;
+
  public:
   PolicyManager() {}
   ~PolicyManager() {}
@@ -77,6 +87,7 @@ class PolicyManager {
   inline const vector<Policy*> & GetAllPolicy() const { return policys_; }
   inline Policy *CurPolicy()  { return  cur_policy_; }
   void Print(ostream & os, int indent=0);
+  void CodeGen(CodeGenMgr & mgr);  
 };
 
 #endif

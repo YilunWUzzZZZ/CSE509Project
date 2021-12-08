@@ -20,6 +20,9 @@ public:
  void AddMapping(const string & s) {
    label_to_ret_data_[s] = ret_data++;
  }
+ int GetMapping(const string & s) {
+   return label_to_ret_data_[s];
+ }
  string GenInstLabel(Instruction * i) { 
    string l = "CL" + to_string(++inst_label_cnt_); 
    inst_label_[i] = l; 

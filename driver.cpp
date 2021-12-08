@@ -120,9 +120,8 @@ main(int argc, char *argv[], char *envp[]) {
       ck->IRGen(mgr);
       cerr << "\n";
       ck->PrintIR();
-      cerr << "\n\n";
-      ck->CodeGen(mgr);
     }
   }
+  manager.CodeGen(mgr);
 #endif
 }

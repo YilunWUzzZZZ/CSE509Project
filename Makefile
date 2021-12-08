@@ -2,7 +2,7 @@
 CXX = g++
 CXXFLAGS := -g -Wall -O2  -std=c++11 
 
-HOSTSRCS = parser.cpp lexer.cpp  error.cpp ast.cpp policy.cpp IR_gen.cpp IR.cpp IR_lifter.cpp code_gen.cpp
+HOSTSRCS = parser.cpp lexer.cpp  error.cpp ast.cpp policy.cpp IR_gen.cpp IR.cpp IR_lifter.cpp code_gen.cpp syscalls.cpp
 TESTSRCS = driver.cpp
 
 

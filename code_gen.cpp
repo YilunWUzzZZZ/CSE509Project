@@ -2,9 +2,18 @@
 #include "IR.h"
 #include "IR_lifter.h"
 #include "code_gen.h"
+#include "error.h"
+#include "ast.h"
 #include <set>
 #include <list>
+#include <linux/filter.h>
+#include <linux/seccomp.h>
 
+#ifdef DEBUG_MODE
+#define DENY_ACTION "SECCOMP_RET_ERRNO & (SECCOMP_RET_DATA & 66)"
+#else
+#define DENY_ACTION "SECCOMP_RET_KILL_PROCESS"
+#endif
 static bool InstRequiresPtrace(Instruction * inst) {
   if (isa<CallInst>(inst) || isa<StoreInst>(inst)) {
     return true;
@@ -139,6 +148,256 @@ void GenPtraceCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, I
       }
     } else {
       lifter.LiftBasicBlock(bb);
+    }
+  }
+}
+
+static string bpf_opcodes[] = {
+    "BPF_ERROR", "BPF_ADD", "BPF_SUB", "BPF_MUL", "BPF_DIV", "BPF_MOD", 
+    "BPF_JEQ", "BPF_JNE", "BPF_JGT", "BPF_JLT", "BPF_JGE", "BPF_JLE",
+    "BPF_ERROR", "BPF_ERROR", "BPF_ERROR", 
+    "BPF_NEG", "BPF_AND", "BPF_OR", "BPF_XOR", 
+    "BPF_LSH", "BPF_RSH",
+    "INVALID",
+};
+
+static string GenK_Field(IRValue * val, unordered_map<string, int> *arg_index) {
+  if (isa<Immediate<int>>(val)) {
+      return val->String();
+  } else if (isa<Memory>(val)) {
+      return "offsetof(struct seccomp_data, args) + 8*" + to_string((*arg_index)[val->String()]);
+  } else {
+    internalErr("Unknown Case");
+    return "";
+  }
+}
+
+static void LoadArgumentOrInt(IRValue * val, unordered_map<string, int> *arg_index, list<BPF_Filter> * code) {
+  
+  if (isa<Memory>(val)) {
+    string k_field = "offsetof(struct seccomp_data, args) + 8*" + to_string((*arg_index)[val->String()]);
+    code->push_back({.opcode = "BPF_LD | BPF_W | BPF_ABS", .k=k_field, .type="BPF_STMT"} );
+  } else if (isa<Immediate<int>>(val)) {
+    code->push_back({.opcode = "BPF_LD | BPF_W | BPF_K", .k=val->String(), .type="BPF_STMT"});
+  }
+}
+
+inline static string GetAddressMode(IRValue * val) {
+  if (isa<Memory>(val)) {
+    return "BPF_ABS";
+  } else if (isa<Immediate<int>>(val)) {
+    return "BPF_K";
+  } else {
+    internalErr("Unexpected case");
+    return "BPF_ERR";
+  }
+}
+
+// if (load_mem) {
+//     BPF_Filter filter = {.opcode= ld_type + " | BPF_MEM | BPF_W", .k=0, .type="BPF_STMT"};
+//     code->push_back(filter);
+//   }
+
+list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string, int> *arg_index, IRLifter & lifter) {
+  auto end = BPF_IR.end();
+  auto it = BPF_IR.begin();
+
+
+  list<BPF_Filter> * code = new list<BPF_Filter>();
+
+  IRValue *A_val = nullptr;
+  IRValue *M0_val = nullptr;
+  BPF_Filter filter;
+  ++it; // skip start label
+  while (it != end) {
+    Instruction * inst = *it++;
+    // cerr << "Generating " << inst->String() << "\n";
+    if (isa<ArithmeticInst>(inst)) {
+      ArithmeticInst * arith = (ArithmeticInst*)(inst);
+      IRValue * op1 = arith->GetOperand(0);
+      IRValue * op2 = arith->GetOperand(1);
+      if(A_val && A_val != op1 && A_val != op2) {
+        filter = {.opcode="BPF_ST |  BPF_W", .k="0", .type="BPF_STMT"};
+        code->push_back(filter);
+        M0_val = A_val;
+        A_val = nullptr;
+        
+      }
+      if (isa<Instruction>(op1) && op2 && isa<Instruction>(op2)) {
+        assert(op1 == M0_val || op2 == M0_val);
+        filter = {.opcode=  "BPF_LDX | BPF_MEM | BPF_W", .k="0", .type="BPF_STMT"};
+        M0_val = nullptr;
+        code->push_back(filter);
+        filter = {.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()], 
+                             .type="BPF_STMT"};
+        code->push_back(filter);
+      } else if (!isa<Instruction>(op1) && op2 && isa<Instruction>(op2) ) {
+        code->push_back({.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()] + " | " + GetAddressMode(op1),
+                  .k = GenK_Field(op1, arg_index),
+                  .type="BPF_STMT"});
+      } else if (isa<Instruction>(op1) && op2 && !isa<Instruction>(op2) ) {
+        code->push_back({.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()] + " | " + GetAddressMode(op2),
+                  .k = GenK_Field(op2, arg_index),
+                  .type="BPF_STMT"});
+      } else if (!op2) {
+        if (!isa<Instruction>(op1)) {
+          LoadArgumentOrInt(op1, arg_index, code);
+        }
+        if (arith->GetOpcode() != OpNode::UMINUS) {
+          code->push_back({.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()],
+                    .type="BPF_STMT"});
+        } else {
+          code->push_back({.opcode="BPF_TAX",
+                    .type="BPF_STMT"});
+          code->push_back({.opcode="BPF_LD | BPF_W | BPF_K",
+                    .k = "0",
+                    .type="BPF_STMT"});
+          code->push_back({.opcode="BPF_ALU | BPF_SUB",
+                    .type="BPF_STMT"});
+        }
+      } else if (!isa<Instruction>(op1) && !isa<Instruction>(op2)) {
+        LoadArgumentOrInt(op1, arg_index, code);
+       
+        code->push_back({.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()] + " | " + GetAddressMode(op2),
+                .k = GenK_Field(op2, arg_index),
+                .type="BPF_STMT"});
+        
+      } else {
+        internalErr("Unknown case: " + arith->String());
+      }
+      A_val = arith;
+    } else if(isa<BranchInst>(inst)) {
+      BranchInst * branch = (BranchInst*)(inst);
+      IRValue * op1 = branch->GetOperand(0);
+      IRValue * op2 = branch->GetOperand(1);
+      if (isa<Instruction>(op1) && isa<Instruction>(op2)) {
+        assert(op1 == M0_val || op2 == M0_val);
+        filter = {.opcode=  "BPF_LDX | BPF_MEM | BPF_W", .k="0", .type="BPF_STMT"};
+        M0_val = nullptr;
+        code->push_back(filter);
+        filter = {.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()], 
+                  .k = "0",
+                  .jt=branch->GetTrueTarget(),
+                  .jf=branch->GetFalseTarget(),
+                  .type="BPF_JUMP"};
+        code->push_back(filter);
+      } else if (!isa<Instruction>(op1)&& isa<Instruction>(op2) ) {
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op1),
+                  .k = GenK_Field(op1, arg_index),
+                  .jt=branch->GetTrueTarget(),
+                  .jf=branch->GetFalseTarget(),
+                  .type="BPF_JUMP"});
+      } else if (isa<Instruction>(op1) && !isa<Instruction>(op2)) {
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op2),
+                  .k = GenK_Field(op2, arg_index),
+                  .jt=branch->GetTrueTarget(),
+                  .jf=branch->GetFalseTarget(),
+                  .type="BPF_JUMP"});
+      } else if (!isa<Instruction>(op1) && !isa<Instruction>(op2)) {
+        LoadArgumentOrInt(op1, arg_index, code);
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op2),
+                  .k = GenK_Field(op2, arg_index),
+                  .jt=branch->GetTrueTarget(),
+                  .jf=branch->GetFalseTarget(),
+                  .type="BPF_JUMP"});
+      } else {
+        internalErr("Unknown case: " + branch->String());
+      }
+      A_val = nullptr;
+    } else if (isa<ReturnInst>(inst)) {
+      ReturnInst * ret = (ReturnInst*)inst;
+      Immediate<int> * imm = (Immediate<int> * )ret->GetOperand(0);
+      int retval = imm->GetValue();
+      switch (retval)
+      {
+      case PermNode::ALLOW:
+        code->push_back({.opcode="BPF_RET | BPF_K",
+                        .k = "SECCOMP_RET_ALLOW",
+                        .type="BPF_STMT"});
+        break;
+      case PermNode::DENY:
+        code->push_back({.opcode="BPF_RET | BPF_K",
+                        .k = DENY_ACTION ,
+                        .type="BPF_STMT"});
+        break;
+      case RET_TO_PTRACE:
+      {
+        int retdata = lifter.GetMapping(bpfret_to_string[inst]);
+        string k_str =  "SECCOMP_RET_TRACE | (SECCOMP_RET_DATA & "  + to_string(retdata) + ")";
+        code->push_back({.opcode="BPF_RET | BPF_K",
+                        .k = k_str,
+                        .type="BPF_STMT"});
+        break;
+      }
+      default:
+        internalErr("Unknown case: " + ret->String());
+        break;
+      }
+    } else if (isa<LabelInst>(inst)) {
+      code->push_back({.label=inst->String()});
+    }
+  }
+  return code;
+}
+
+string StringfyBPF_Filter(const BPF_Filter & filter) {
+  string bpf_code;
+  if (!filter.label.empty()) {
+    return filter.label;
+  }
+  bpf_code = filter.type + "(" + filter.opcode;
+  if (!filter.k.empty()) {
+    bpf_code += ", " + filter.k;
+  } 
+  if (!filter.jt.empty()) {
+    bpf_code += ", " + filter.jt;
+  }
+  if (!filter.jf.empty()) {
+    bpf_code += ", " + filter.jf;
+  }
+  bpf_code += ");";
+  return bpf_code;
+}
+
+void BPFTransformLabels(list<BPF_Filter> & filters) {
+  unordered_map<string, BPF_Filter*>  label_2_filter;
+  auto it = filters.begin();
+  while (it != filters.end()) {
+    BPF_Filter * f = &(*it);
+    auto next = ++it;
+    if (!f->label.empty()) {
+      label_2_filter[f->label] = &(*next);
+    }
+  }
+  // transform string target to address offset
+  // first allocating ip
+  int ip = 0;
+  for (auto & f : filters) {
+    f.pc = ip;
+    if (f.label.empty()) {
+      ip++;
+    }
+  }
+  it = filters.begin();
+  while (it != filters.end()) {
+    auto cur = it++;
+    BPF_Filter & f = *cur;
+    if (!f.label.empty()) {
+      filters.erase(cur);
+      continue;
+    }
+    if (f.type == "BPF_JUMP") {
+      BPF_Filter * true_target = label_2_filter[f.jt];
+      int offset;
+      if (true_target) {
+        offset = true_target->pc - f.pc - 1;
+        f.jt = to_string(offset);
+      }
+      BPF_Filter * false_target = label_2_filter[f.jf];
+      if (false_target) {
+        offset = false_target->pc - f.pc - 1;
+        f.jf = to_string(offset);
+      }
     }
   }
 }
