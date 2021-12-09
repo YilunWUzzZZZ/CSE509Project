@@ -5,6 +5,8 @@
 #include "code_gen.h"
 #include "IR_lifter.h"
 #include "syscalls.h"
+#include <fstream>
+#include "code_template.h"
 // PolicyManager manager;
 
 void Policy::Print(ostream & os, int indent) {
@@ -59,21 +61,22 @@ void SyscallCheck::PrintIR() {
 void SyscallCheck::CodeGen(CodeGenMgr & mgr) {
   list<Instruction*> BPF_IR;
   IRLifter * lifter = new IRLifter();
-  PtraceBasicBlock ptrace_bbs;
-  PtraceBasicBlock ptrace_only_bbs;
+  PtraceBasicBlock ptrace_bbs_;
+  PtraceBasicBlock ptrace_only_bbs_;
 
-  ColorCode(*CFG_, ptrace_bbs, ptrace_only_bbs);
-  for (auto p : ptrace_bbs) {
+  ColorCode(*CFG_, ptrace_bbs_, ptrace_only_bbs_);
+  for (auto p : ptrace_bbs_) {
     cout << p.first->GetLabel() << " ";
   }
   cout << "\n";
-  for (auto p : ptrace_only_bbs) {
+  for (auto p : ptrace_only_bbs_) {
     cout << p.first->GetLabel() << " ";
   }
-  GenBPFIR(*CFG_, ptrace_only_bbs, BPF_IR, *lifter);
-  GenPtraceCode(*CFG_, ptrace_bbs, *lifter);
+  GenBPFIR(*CFG_, ptrace_only_bbs_, BPF_IR, *lifter);
+  GenPtraceCode(*CFG_, ptrace_bbs_, *lifter);
   list<BPF_Filter> *filters = BPFCodeGen(BPF_IR, &arg_index_, *lifter);
   bpf_filters_ = filters;
+  lifter_ = lifter;
   // cerr << "\n" << syscall_ << " BPF code: \n";
   // for (auto & f: *filters) {
   //   cerr << StringfyBPF_Filter(f) << "\n"; 
@@ -87,6 +90,37 @@ void SyscallCheck::CodeGen(CodeGenMgr & mgr) {
   // cerr << "\n" << syscall_ << " C code: \n";
   // PrintCCode(cout, lifter->Code());
 
+}
+
+
+void PolicyManager::PtraceCodeGen(CodeGenMgr & mgr) {
+  vector<string> ptrace_labels;
+  vector<SyscallCheck*> checks;
+  string ptrace_code;
+  string jmp_table = "void * jmp_table[] = {";
+  for (auto p : policys_) {
+    if (p->Type() == Policy::SYSCALL_CHECK) {
+      SyscallCheck * check = (SyscallCheck*)p;
+      checks.push_back(check);
+      for (auto & pair : check->ptrace_bbs_) {
+        ptrace_labels.push_back(pair.first->GetLabel());
+      }
+    } 
+  }
+  for (int i=0; i<ptrace_labels.size(); i++) {
+    if (i % 15 == 0) {
+      jmp_table += "\n";
+    }
+    jmp_table += "&&" + ptrace_labels[i] + ",";
+  }
+  jmp_table += "};\n";
+  ptrace_code = ptrace_template_p1 + jmp_table + ptrace_template_p1;
+  string indent = "            ";
+  for (auto check : checks) {
+    
+  }
+
+  
 }
 
 void PolicyManager::CodeGen(CodeGenMgr & mgr) {

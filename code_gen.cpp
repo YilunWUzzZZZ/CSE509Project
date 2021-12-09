@@ -8,6 +8,7 @@
 #include <list>
 #include <linux/filter.h>
 #include <linux/seccomp.h>
+#include "syscalls.h"
 
 #ifdef DEBUG_MODE
 #define DENY_ACTION "SECCOMP_RET_ERRNO & (SECCOMP_RET_DATA & 66)"
@@ -127,6 +128,87 @@ void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, l
       }
     }
   }
+}
+
+
+void GenPtracePrologueAndEpilogue(int syscall_nr, vector<string> & args, PtraceBasicBlock &ptrace_blocks,
+                                  vector<string> & prologue, vector<string> & epilogue) 
+{ 
+  SyscallInfo & info = syscall_infos[syscall_nr];
+  set<int> string_args;
+  set<int> args_used;
+  set<int> args_assigned;
+  unordered_map<string, int> arg_index;
+  for (int i=0; i<args.size(); i++) {
+    arg_index[args[i]] = i;
+  }
+  for (int i=0 ; i<info.num_args; i++) {
+    if (info.arg_types[i].find("const char *") != string::npos) {
+      string_args.insert(i);
+    }
+  }
+  for (auto pair : ptrace_blocks) {
+    auto bb = pair.first;
+    for (auto inst : bb->Insts()) {
+      if (isa<CallInst>(inst)) {
+        CallInst * call = (CallInst*)inst;
+        auto fargs = call->GetArgs();
+        for (auto & arg : *fargs) {
+          args_used.insert(arg_index[arg]);
+        }
+      } else if (isa<StoreInst>(inst)) {
+        IRValue * val = inst->GetOperand(1);
+        assert(isa<Memory>(val));
+        int index = arg_index[val->String()];
+        args_assigned.insert(index);
+        IRValue * op1 = inst->GetOperand(0);
+        if (isa<Memory>(op1)) {
+          index = arg_index[op1->String()];
+          args_used.insert(index);
+        }
+      } else if (isa<ArithmeticInst>(inst) || isa<BranchInst>(inst)) {
+        IRValue * op1, * op2;
+        op1 = inst->GetOperand(0);
+        op2 = inst->GetOperand(1);
+        if (op1 && isa<Memory>(op1)) {
+          args_used.insert(arg_index[op1->String()]);
+        }
+        if (op2 && isa<Memory>(op2)) {
+          args_used.insert(arg_index[op2->String()]);
+        }
+      } 
+    }
+  }
+
+  // Extract arguments
+  for (int i=0; i<info.num_args; i++) {
+    if (!args_used.count(i)) {
+      continue;
+    }
+    if (string_args.count(i)) {
+      prologue.push_back("char *" + args[i] + " = ptrace_copy_out_string(child, regs." + syscall_regs[i] + ");");
+    } else {
+      prologue.push_back(info.arg_types[i] +  " " +  args[i] + " = regs." + syscall_regs[i] + ";");
+    }
+  }
+
+  // copy back arguments
+  bool non_mem_args_changed = false;
+  for (int i=0; i<info.num_args; i++) {
+    if (!args_assigned.count(i)) {
+      continue;
+    }
+    if (string_args.count(i)) {
+      epilogue.push_back("ptrace_copy_back_string(child, " + args[i] + ", regs." + syscall_regs[i] + ");");
+    } else {
+      epilogue.push_back("regs." + syscall_regs[i] + " = " + args[i] + ";");
+      non_mem_args_changed = true;
+    }
+  }
+  if (non_mem_args_changed) {
+    epilogue.push_back("ptrace(PTRACE_SETREGS, child, NULL, &regs);");
+  }
+
 }
 
 void GenPtraceCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, IRLifter & lifter) {
@@ -270,7 +352,13 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
       BranchInst * branch = (BranchInst*)(inst);
       IRValue * op1 = branch->GetOperand(0);
       IRValue * op2 = branch->GetOperand(1);
-      if (isa<Instruction>(op1) && isa<Instruction>(op2)) {
+      if (branch->IsUncondBranch()) {
+        filter = {.opcode="BPF_JMP | BPF_JA", 
+                  .k = branch->GetTrueTarget(),
+                  .jt="0",
+                  .jf="0",
+                  .type="BPF_JUMP"};
+      } else if (isa<Instruction>(op1) && isa<Instruction>(op2)) {
         assert(op1 == M0_val || op2 == M0_val);
         filter = {.opcode=  "BPF_LDX | BPF_MEM | BPF_W", .k="0", .type="BPF_STMT"};
         M0_val = nullptr;
@@ -387,8 +475,17 @@ void BPFTransformLabels(list<BPF_Filter> & filters) {
       continue;
     }
     if (f.type == "BPF_JUMP") {
-      BPF_Filter * true_target = label_2_filter[f.jt];
       int offset;
+      if (f.opcode.find("JA") != string::npos) {
+        BPF_Filter * target = label_2_filter[f.k];
+        if (target) {
+          offset = target->pc - f.pc -1;
+          f.k = to_string(offset);
+        }
+        continue;
+      }
+      BPF_Filter * true_target = label_2_filter[f.jt];
+      
       if (true_target) {
         offset = true_target->pc - f.pc - 1;
         f.jt = to_string(offset);

@@ -15,5 +15,5 @@ struct SyscallInfo {
 };
 
 extern SyscallInfo syscall_infos[];
-
+extern string syscall_regs[];
 #endif

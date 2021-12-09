@@ -5,7 +5,7 @@
 #include "code_gen.h"
 #include <unordered_map>
 class BasicBlock;
-
+class IRLifter;
 
 class Policy {
  public:
@@ -35,6 +35,9 @@ class SyscallCheck: public Policy {
   list<Instruction*> IR_;
   vector<BasicBlock*> * CFG_;
   list<BPF_Filter> *bpf_filters_;
+  IRLifter *lifter_;
+  PtraceBasicBlock ptrace_bbs_;
+  PtraceBasicBlock ptrace_only_bbs_;
  public:
   friend class PolicyManager;
   SyscallCheck(CompoundStmtNode * stmts, const string & syscall, vector<string> * args = nullptr): 
@@ -79,6 +82,10 @@ class PolicyManager {
  private:
   vector<Policy*> policys_;
   Policy*  cur_policy_;
+  vector<BPF_Filter> bpf_filters_;
+
+  string bpf_output_file_;
+  string ptrace_output_file_;
 
  public:
   PolicyManager() {}
@@ -87,6 +94,8 @@ class PolicyManager {
   inline const vector<Policy*> & GetAllPolicy() const { return policys_; }
   inline Policy *CurPolicy()  { return  cur_policy_; }
   void Print(ostream & os, int indent=0);
+  void PtraceCodeGen(CodeGenMgr & mgr);
+  void BPFCodeGen(CodeGenMgr & mgr);
   void CodeGen(CodeGenMgr & mgr);  
 };
 
