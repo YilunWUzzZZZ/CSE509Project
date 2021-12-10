@@ -5,5 +5,6 @@ using namespace std;
 extern string ptrace_template_p1;
 extern string ptrace_template_p2;
 extern string ptrace_template_p3;
-
+extern string seccomp_template_p1;
+extern string seccomp_template_p2;
 #endif

@@ -5,10 +5,18 @@ def open(name, flags, mode):
     allow;
   } else if (mode +2 & flags != -2) {
     deny;
-  } else if (name + 2 + 3 & flags) {
+  } else if (mode != 0x01 && badname(name)) {
     deny;    
   } else {
     allow;
   }
 
+def mmap(addr, len, prot, flags, fd, offset):
+  if (prot & 0x1) {
+    deny;
+  } else if (badfd(fd)) {
+    deny;
+  } else {
+    allow;
+  }
 

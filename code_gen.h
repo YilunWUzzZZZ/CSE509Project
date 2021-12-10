@@ -30,4 +30,6 @@ void GenPtraceCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, I
 list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string, int> *arg_index, IRLifter & lifter);
 string StringfyBPF_Filter(const BPF_Filter & filter);
 void BPFTransformLabels(list<BPF_Filter> & filters);
+void GenPtracePrologueAndEpilogue(int syscall_nr, vector<string> & args, PtraceBasicBlock &ptrace_blocks,
+                                  vector<string> & prologue, vector<string> & epilogue);
 #endif

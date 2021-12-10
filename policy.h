@@ -62,7 +62,7 @@ class SyscallCheck: public Policy {
   void SetStmts(CompoundStmtNode* stmts) { stmts_ = stmts; }
   list<Instruction*> & IR() {return IR_;}
   void IRGen(CodeGenMgr & mgr);
-  void CodeGen(CodeGenMgr & mgr);
+  void CodeGen();
   void PrintIR();
   void Print(ostream & os, int indent=0);
 };
@@ -88,15 +88,24 @@ class PolicyManager {
   string ptrace_output_file_;
 
  public:
-  PolicyManager() {}
+  PolicyManager() {
+    bpf_output_file_ = "bpf_out.c";
+    ptrace_output_file_ = "ptrace_out.c";
+  }
+
   ~PolicyManager() {}
   void AddPolicy(Policy * p) { policys_.push_back(p); cur_policy_= p; }
   inline const vector<Policy*> & GetAllPolicy() const { return policys_; }
   inline Policy *CurPolicy()  { return  cur_policy_; }
   void Print(ostream & os, int indent=0);
-  void PtraceCodeGen(CodeGenMgr & mgr);
-  void BPFCodeGen(CodeGenMgr & mgr);
-  void CodeGen(CodeGenMgr & mgr);  
+  void PtraceCodeGen();
+  void SetOutputs(const string & bpf_out, const string & ptrace_out) {
+    bpf_output_file_ = bpf_out;
+    ptrace_output_file_ = ptrace_out;
+  }
+  void BPFCodeGen(bool default_deny);
+  void IRGen(CodeGenMgr & mgr);  
+  void CodeGen();  
 };
 
 #endif

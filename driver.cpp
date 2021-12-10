@@ -48,16 +48,16 @@ int
 parseOptions(int argc, char* argv[]) {
   opterr = 0; // Suppress printing of errors by getopt.
 
-  while (1) {
-  	if ((argc > 2) || (argc < 2)) {
-  		cerr << "Please specify exactly a single input file\n";
-  		return -1;
-  	}
-  	else {
-  	  inputFile.assign(argv[1], argv[1] + strlen(argv[1]));
-  	  return 0;
-  	}
+
+  if ((argc < 2)) {
+    cerr << "Please specify a input file\n";
+    return -1;
   }
+  else {
+    inputFile.assign(argv[1], argv[1] + strlen(argv[1]));
+    return 0;
+  }
+
 
   if (inputFile.length() == 0) 
     return -1;
@@ -113,15 +113,7 @@ main(int argc, char *argv[], char *envp[]) {
 
   manager.Print(cout);
   CodeGenMgr mgr;
-  const vector<Policy*> & ps = manager.GetAllPolicy();
-  for (auto p : ps) {
-    if (p->Type() == Policy::SYSCALL_CHECK) {
-      SyscallCheck* ck = (SyscallCheck*)p;
-      ck->IRGen(mgr);
-      cerr << "\n";
-      ck->PrintIR();
-    }
-  }
-  manager.CodeGen(mgr);
+  manager.IRGen(mgr);
+  manager.CodeGen();
 #endif
 }

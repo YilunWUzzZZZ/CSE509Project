@@ -236,12 +236,16 @@ void GenPtraceCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, I
 
 static string bpf_opcodes[] = {
     "BPF_ERROR", "BPF_ADD", "BPF_SUB", "BPF_MUL", "BPF_DIV", "BPF_MOD", 
-    "BPF_JEQ", "BPF_JNE", "BPF_JGT", "BPF_JLT", "BPF_JGE", "BPF_JLE",
+    "BPF_JEQ", "BPF_JEQ", "BPF_JGT", "BPF_JGT", "BPF_JGE", "BPF_JGE",
     "BPF_ERROR", "BPF_ERROR", "BPF_ERROR", 
     "BPF_NEG", "BPF_AND", "BPF_OR", "BPF_XOR", 
     "BPF_LSH", "BPF_RSH",
     "INVALID",
 };
+
+static inline bool NeedSwapTarget(OpNode::OpCode jmp_type) {
+  return jmp_type == OpNode::LE || jmp_type == OpNode::LT || jmp_type == OpNode::NE;
+}
 
 static string GenK_Field(IRValue * val, unordered_map<string, int> *arg_index) {
   if (isa<Immediate<int>>(val)) {
@@ -310,7 +314,7 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
         filter = {.opcode=  "BPF_LDX | BPF_MEM | BPF_W", .k="0", .type="BPF_STMT"};
         M0_val = nullptr;
         code->push_back(filter);
-        filter = {.opcode="BPF_ALU | " + bpf_opcodes[arith->GetOpcode()], 
+        filter = {.opcode="BPF_ALU | BPF_X | " + bpf_opcodes[arith->GetOpcode()], 
                              .type="BPF_STMT"};
         code->push_back(filter);
       } else if (!isa<Instruction>(op1) && op2 && isa<Instruction>(op2) ) {
@@ -334,7 +338,7 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
           code->push_back({.opcode="BPF_LD | BPF_W | BPF_K",
                     .k = "0",
                     .type="BPF_STMT"});
-          code->push_back({.opcode="BPF_ALU | BPF_SUB",
+          code->push_back({.opcode="BPF_ALU | BPF_SUB | BPF_X",
                     .type="BPF_STMT"});
         }
       } else if (!isa<Instruction>(op1) && !isa<Instruction>(op2)) {
@@ -352,6 +356,9 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
       BranchInst * branch = (BranchInst*)(inst);
       IRValue * op1 = branch->GetOperand(0);
       IRValue * op2 = branch->GetOperand(1);
+      auto jmp_type = branch->GetJmpType();
+      string true_target = branch->GetTrueTarget();
+      string false_target = branch->GetFalseTarget();
       if (branch->IsUncondBranch()) {
         filter = {.opcode="BPF_JMP | BPF_JA", 
                   .k = branch->GetTrueTarget(),
@@ -363,30 +370,30 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
         filter = {.opcode=  "BPF_LDX | BPF_MEM | BPF_W", .k="0", .type="BPF_STMT"};
         M0_val = nullptr;
         code->push_back(filter);
-        filter = {.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()], 
+        filter = {.opcode="BPF_JMP | BPF_X | " + bpf_opcodes[jmp_type], 
                   .k = "0",
-                  .jt=branch->GetTrueTarget(),
-                  .jf=branch->GetFalseTarget(),
+                  .jt= NeedSwapTarget(jmp_type) ? false_target : true_target ,
+                  .jf= NeedSwapTarget(jmp_type) ? true_target : false_target ,
                   .type="BPF_JUMP"};
         code->push_back(filter);
       } else if (!isa<Instruction>(op1)&& isa<Instruction>(op2) ) {
-        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op1),
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[jmp_type] + " | " + GetAddressMode(op1),
                   .k = GenK_Field(op1, arg_index),
-                  .jt=branch->GetTrueTarget(),
-                  .jf=branch->GetFalseTarget(),
+                  .jt=NeedSwapTarget(jmp_type) ? false_target : true_target ,
+                  .jf=NeedSwapTarget(jmp_type) ? true_target : false_target ,
                   .type="BPF_JUMP"});
       } else if (isa<Instruction>(op1) && !isa<Instruction>(op2)) {
-        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op2),
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[jmp_type] + " | " + GetAddressMode(op2),
                   .k = GenK_Field(op2, arg_index),
-                  .jt=branch->GetTrueTarget(),
-                  .jf=branch->GetFalseTarget(),
+                  .jt=NeedSwapTarget(jmp_type) ? false_target : true_target ,
+                  .jf=NeedSwapTarget(jmp_type) ? true_target : false_target,
                   .type="BPF_JUMP"});
       } else if (!isa<Instruction>(op1) && !isa<Instruction>(op2)) {
         LoadArgumentOrInt(op1, arg_index, code);
-        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[branch->GetJmpType()] + " | " + GetAddressMode(op2),
+        code->push_back({.opcode="BPF_JMP | " + bpf_opcodes[jmp_type] + " | " + GetAddressMode(op2),
                   .k = GenK_Field(op2, arg_index),
-                  .jt=branch->GetTrueTarget(),
-                  .jf=branch->GetFalseTarget(),
+                  .jt=NeedSwapTarget(jmp_type) ? false_target : true_target,
+                  .jf=NeedSwapTarget(jmp_type) ? true_target : false_target,
                   .type="BPF_JUMP"});
       } else {
         internalErr("Unknown case: " + branch->String());
@@ -434,16 +441,16 @@ string StringfyBPF_Filter(const BPF_Filter & filter) {
     return filter.label;
   }
   bpf_code = filter.type + "(" + filter.opcode;
-  if (!filter.k.empty()) {
-    bpf_code += ", " + filter.k;
-  } 
+
+  bpf_code += ", " + (filter.k.empty() ? "0" : filter.k);
+
   if (!filter.jt.empty()) {
     bpf_code += ", " + filter.jt;
   }
   if (!filter.jf.empty()) {
     bpf_code += ", " + filter.jf;
   }
-  bpf_code += ");";
+  bpf_code += ")";
   return bpf_code;
 }
 

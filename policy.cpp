@@ -6,6 +6,7 @@
 #include "IR_lifter.h"
 #include "syscalls.h"
 #include <fstream>
+#include <iostream>
 #include "code_template.h"
 // PolicyManager manager;
 
@@ -58,11 +59,10 @@ void SyscallCheck::PrintIR() {
   }
 }
 
-void SyscallCheck::CodeGen(CodeGenMgr & mgr) {
+void SyscallCheck::CodeGen() {
   list<Instruction*> BPF_IR;
   IRLifter * lifter = new IRLifter();
-  PtraceBasicBlock ptrace_bbs_;
-  PtraceBasicBlock ptrace_only_bbs_;
+
 
   ColorCode(*CFG_, ptrace_bbs_, ptrace_only_bbs_);
   for (auto p : ptrace_bbs_) {
@@ -92,60 +92,95 @@ void SyscallCheck::CodeGen(CodeGenMgr & mgr) {
 
 }
 
+void PolicyManager::IRGen(CodeGenMgr & mgr) {
+  for (auto p : policys_) {
+    if (p->Type() == Policy::SYSCALL_CHECK) {
+      SyscallCheck* ck = (SyscallCheck*)p;
+      ck->IRGen(mgr);
+      cerr << "\n";
+      ck->PrintIR();
+    }
+  }
+}
 
-void PolicyManager::PtraceCodeGen(CodeGenMgr & mgr) {
+void PolicyManager::PtraceCodeGen() {
   vector<string> ptrace_labels;
   vector<SyscallCheck*> checks;
   string ptrace_code;
-  string jmp_table = "void * jmp_table[] = {";
+  string jmp_table = "  void * jmp_table[] = {";
+  bool has_ptrace = false;
   for (auto p : policys_) {
     if (p->Type() == Policy::SYSCALL_CHECK) {
       SyscallCheck * check = (SyscallCheck*)p;
       checks.push_back(check);
+      if (check->ptrace_bbs_.size()) {
+        has_ptrace = true;
+      }
       for (auto & pair : check->ptrace_bbs_) {
         ptrace_labels.push_back(pair.first->GetLabel());
       }
     } 
   }
+  if (!has_ptrace) {
+    return;
+  }
   for (int i=0; i<ptrace_labels.size(); i++) {
-    if (i % 15 == 0) {
+    if (i && i % 15 == 0) {
       jmp_table += "\n";
     }
     jmp_table += "&&" + ptrace_labels[i] + ",";
   }
   jmp_table += "};\n";
-  ptrace_code = ptrace_template_p1 + jmp_table + ptrace_template_p1;
+  ptrace_code = ptrace_template_p1 + jmp_table + ptrace_template_p2;
   string indent = "            ";
   for (auto check : checks) {
-    
+    auto & code = check->lifter_->Code();
+    ptrace_code += indent + "{\n";
+    vector<string> prologue, epilogue;
+    GenPtracePrologueAndEpilogue(SyscallNameToNr(check->syscall_), *(check->args_), check->ptrace_bbs_, prologue, epilogue);
+    for (auto & line: prologue) {
+      ptrace_code += indent + line + "\n";
+    }
+    for (auto & line : code) {
+      ptrace_code += "  " + indent + line + "\n";
+    }
+     for (auto & line: epilogue) {
+      ptrace_code += indent + line + "\n";
+    }
+    ptrace_code += indent  + "}\n\n";
   }
-
-  
+  ptrace_code += ptrace_template_p3;
+  ofstream ptrace_file(ptrace_output_file_);
+  if (ptrace_file.is_open()) {
+    ptrace_file << ptrace_code;
+    ptrace_file.close();
+  } else {
+    fprintf(stderr, "Can't open output file %s\n", ptrace_output_file_.c_str());
+    exit(EXIT_FAILURE);
+  }
 }
 
-void PolicyManager::CodeGen(CodeGenMgr & mgr) {
+void PolicyManager::BPFCodeGen(bool default_deny) {
   vector<SyscallCheck*> checks;
-  bool default_deny = true;
-
   for (auto p : policys_) {
     if (p->Type() == Policy::SYSCALL_CHECK) {
       SyscallCheck * check = (SyscallCheck*)p;
-      check->CodeGen(mgr);
       checks.push_back(check);
-    } else if (p->Type() == Policy::DEFAULT_ALLOW) {
-      default_deny = false;
     } 
   }
-
+  if (!checks.size()) {
+    return;
+  }
   string default_label = default_deny ?  "__deny" : "__allow";  
-
   list<BPF_Filter> final_filters;
-  // first insert architecture checking code
+// first insert architecture checking code
   final_filters.push_back({.opcode = "BPF_LD | BPF_W | BPF_ABS", .k="(offsetof(struct seccomp_data, arch))", .type = "BPF_STMT"});
   final_filters.push_back({.opcode = "BPF_JMP | BPF_JEQ | BPF_K", .k="t_arch", .jt="0", .jf="__deny",.type = "BPF_JUMP"});
-  // check syscall number for x86_64
+// check syscall number for x86_64
   final_filters.push_back({.opcode = "BPF_LD | BPF_W | BPF_ABS", .k="(offsetof(struct seccomp_data, nr))", .type = "BPF_STMT"});
-  final_filters.push_back({.opcode = "BPF_JMP | BPF_JLT | BPF_K", .k="upper_nr_limit", .jt="0", .jf="__deny",.type = "BPF_JUMP"});
+  final_filters.push_back({.opcode = "BPF_JMP | BPF_JGT | BPF_K", .k="upper_nr_limit", .jt="0", .jf=checks[0]->syscall_, .type = "BPF_JUMP"});
+// x86_32 ABI, unset the bit
+  final_filters.push_back({.opcode = "BPF_ALU | BPF_AND | BPF_K", .k="~X32_SYSCALL_BIT", .type = "BPF_STMT"});
   for (size_t i=0; i<checks.size(); i++) {
     SyscallCheck * c = checks[i];
     SyscallCheck * next = (i + 1 == checks.size())?nullptr:checks[i+1];
@@ -178,4 +213,33 @@ void PolicyManager::CodeGen(CodeGenMgr & mgr) {
   // for (auto & f: final_filters) {
   //   cerr << StringfyBPF_Filter(f) << "\n"; 
   // }
+  string indent = "        ";
+  string output = seccomp_template_p1;
+  for (auto & f: final_filters) {
+    output += indent + StringfyBPF_Filter(f)+ ",\n"; 
+  }
+  output += seccomp_template_p2;
+  ofstream bpf_file(bpf_output_file_);
+  if (bpf_file.is_open()) {
+    bpf_file << output;
+    bpf_file.close(); 
+  } else {
+    fprintf(stderr, "Can't open output file %s\n", bpf_output_file_.c_str());
+    exit(EXIT_FAILURE);
+  }
+}
+
+
+void PolicyManager::CodeGen() {
+  bool default_deny = true;
+  for (auto p : policys_) {
+    if (p->Type() == Policy::SYSCALL_CHECK) {
+      SyscallCheck * check = (SyscallCheck*)p;
+      check->CodeGen();
+    } else if (p->Type() == Policy::DEFAULT_ALLOW) {
+      default_deny = false;
+    } 
+  }
+  BPFCodeGen(default_deny);
+  PtraceCodeGen();
 }  
