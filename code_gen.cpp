@@ -83,7 +83,9 @@ void ColorCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, Ptrac
   GetPtraceOnlyBB(ptrace_blocks, ptrace_only_blocks);
 }
 
-unordered_map<Instruction*, string> bpfret_to_string;
+int ret_data = 0;
+unordered_map<Instruction*, int> bpfret_to_ret_data;
+vector<string> ret_data_to_label;
 
 void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, list<Instruction*> & BPF_IR, IRLifter & lifter)
 {
@@ -101,9 +103,11 @@ void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, l
       for (auto i : bb->Insts()) {
         if (i == end) {
           // transition point
+          printf("Special Case encountered\n");
           Instruction * ret = new ReturnInst(new Immediate<int>(RET_TO_PTRACE));
           string l = lifter.GenInstLabel(end);
-          bpfret_to_string[ret] = l;
+          bpfret_to_ret_data[ret] = ret_data++;
+          ret_data_to_label.push_back(l);
           BPF_IR.push_back(ret);
           break;
         }
@@ -113,7 +117,8 @@ void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, l
     } else if (ptrace_targets.count(bb)) {
       BPF_IR.push_back(new LabelInst(bb->GetLabel()));
       Instruction * ret = new ReturnInst(new Immediate<int>(RET_TO_PTRACE));
-      bpfret_to_string[ret] = bb->GetLabel();
+      bpfret_to_ret_data[ret] = ret_data++;
+      ret_data_to_label.push_back(bb->GetLabel());
       BPF_IR.push_back(ret);
       continue;
     } else {
@@ -417,7 +422,7 @@ list<BPF_Filter> * BPFCodeGen(list<Instruction*> & BPF_IR, unordered_map<string,
         break;
       case RET_TO_PTRACE:
       {
-        int retdata = lifter.GetMapping(bpfret_to_string[inst]);
+        int retdata = bpfret_to_ret_data[inst];
         string k_str =  "SECCOMP_RET_TRACE | (SECCOMP_RET_DATA & "  + to_string(retdata) + ")";
         code->push_back({.opcode="BPF_RET | BPF_K",
                         .k = k_str,

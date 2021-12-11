@@ -104,7 +104,6 @@ void PolicyManager::IRGen(CodeGenMgr & mgr) {
 }
 
 void PolicyManager::PtraceCodeGen() {
-  vector<string> ptrace_labels;
   vector<SyscallCheck*> checks;
   string ptrace_code;
   string jmp_table = "  void * jmp_table[] = {";
@@ -116,19 +115,17 @@ void PolicyManager::PtraceCodeGen() {
       if (check->ptrace_bbs_.size()) {
         has_ptrace = true;
       }
-      for (auto & pair : check->ptrace_bbs_) {
-        ptrace_labels.push_back(pair.first->GetLabel());
-      }
+     
     } 
   }
   if (!has_ptrace) {
     return;
   }
-  for (int i=0; i<ptrace_labels.size(); i++) {
+  for (int i=0; i<ret_data_to_label.size(); i++) {
     if (i && i % 15 == 0) {
       jmp_table += "\n";
     }
-    jmp_table += "&&" + ptrace_labels[i] + ",";
+    jmp_table += "&&" + ret_data_to_label[i] + ",";
   }
   jmp_table += "};\n";
   ptrace_code = ptrace_template_p1 + jmp_table + ptrace_template_p2;

@@ -32,7 +32,10 @@ COMPILE.C = $(CXX) $(CXXFLAGS) $(DEPFLAGS) -c
 # cxx_flags: force
 # 	@echo '$(MCXXFLAGS)' | tr " " '\n' | grep -v '^$$' | sort -u | diff -q $@ - || echo '$(MCXXFLAGS)' | tr " " '\n' | grep -v '^$$' | sort -u  > $@
 
-all: demo
+all: templates demo
+
+templates:
+	cd code_template && make && cd ..
 
 demo: $(HOSTOBJS) driver.o 
 	$(CXX) $(LDFLAGS) -o $@ $^ 

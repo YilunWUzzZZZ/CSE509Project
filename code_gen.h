@@ -8,6 +8,11 @@ typedef unordered_map<BasicBlock*, Instruction*> PtraceBasicBlock;
 #define RET_TO_PTRACE 3
 #define RET_TO_USER 4
 
+extern int ret_data;
+extern unordered_map<Instruction*, int> bpfret_to_ret_data;
+extern vector<string> ret_data_to_label;
+
+
 enum BPF_REGS {
   A = 1,
   X,
