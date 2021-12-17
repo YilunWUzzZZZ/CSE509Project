@@ -120,7 +120,7 @@ main(int argc, char *argv[], char *envp[]) {
 
   // manager.Print(cout);
   CodeGenMgr mgr;
-  manager.SetOutputs("./tests/bpf_out.c", "./tests/ptrace_out.c");
+  manager.SetOutputs(seccompOutput, ptraceOutput);
   manager.IRGen(mgr);
   manager.CodeGen();
 #endif
