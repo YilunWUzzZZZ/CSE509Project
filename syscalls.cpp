@@ -1,8 +1,9 @@
 #include "syscalls.h"
 #include <unordered_map>
+#include <set>
 
 string syscall_regs[] = {"rdi", "rsi", "rdx", "r10", "r8", "r9"};
-
+set<string> char_star_as_buffer_type = {"write", "read"};
 
 SyscallInfo syscall_infos[] = {
 { .nr = 0, .name = "read", .num_args = 3,

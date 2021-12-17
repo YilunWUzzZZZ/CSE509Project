@@ -15,16 +15,23 @@
 #include "helpers.h"
 
 #define MAX_STRING_LEN  40960
-
+#define X32_SYSCALL_BIT 0x40000000U
+#define X32_MASK 0xFFFFFFFFULL
 int DEBUG = 0;
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
 
 
 int deny = 1;
+int reg_modified  = 0;
+
+
 #define DENY() {deny = 1; goto out;}
 #define ALLOW() {deny = 0; goto out;}
 
+
+#define SET_ARG(idx, new_val) {arguments[idx] = new_val; reg_modified=1;}
+#define GET_ARG(idx) (arguments[idx])
 
 
 
@@ -116,7 +123,7 @@ void ptrace_copy_back_string(int child, char * tracer_ptr, void * tracee_ptr) {
 
 int main(int argc, char ** argv)
 {   
-    /* insert */void * jmp_table[] = {};
+    /* insert */void * jmp_table[] = {}; void * start_table[]  = {};
     pid_t child;
     pid_t direct_child;
     int first_fork = 1;
@@ -174,21 +181,50 @@ int main(int argc, char ** argv)
             ptrace(PTRACE_GETREGS, child, NULL, &regs);
             // Get event message to locate the exact handling logic
             ptrace(PTRACE_GETEVENTMSG, child, NULL, &seccomp_ret_data);
-
-            goto *jmp_table[seccomp_ret_data];
-            /* insert */
-
-
-
-
-           
+            unsigned long long arguments[6];
+            reg_modified=0;
+            if (regs.orig_rax & X32_SYSCALL_BIT) {
+                arguments[0] = regs.rbx & X32_MASK;
+                arguments[1] = regs.rcx & X32_MASK;
+                arguments[2] = regs.rdx & X32_MASK;
+                arguments[3] = regs.rsi & X32_MASK;
+                arguments[4] = regs.rdi & X32_MASK;
+                arguments[5] = regs.rbp & X32_MASK;
+            } else {
+                arguments[0] = regs.rdi;
+                arguments[1] = regs.rsi;
+                arguments[2] = regs.rdx;
+                arguments[3] = regs.r10;
+                arguments[4] = regs.r8;
+                arguments[5] = regs.r9;
+            }
+            goto *start_table[seccomp_ret_data];
+            /* insert */      
    
 out:     
             if (deny) {
-              ptrace(PTRACE_KILL, child,
-                      NULL, NULL);
-              break;
+              printf("Killing offending process %d\n", child);
+              kill(child, SIGKILL);
+              continue;
             } else {
+              if (reg_modified) {
+                if (regs.orig_rax & X32_SYSCALL_BIT) {
+                    regs.rbx = arguments[0];
+                    regs.rcx = arguments[1];
+                    regs.rdx = arguments[2];
+                    regs.rsi = arguments[3];
+                    regs.rdi = arguments[4];
+                    regs.rbp = arguments[5];
+                } else {
+                    regs.rdi = arguments[0];
+                    regs.rsi = arguments[1];
+                    regs.rdx = arguments[2];
+                    regs.r10 = arguments[3];
+                    regs.r8 = arguments[4];
+                    regs.r9 = arguments[5];
+                }
+                ptrace(PTRACE_SETREGS, child, NULL, &regs);
+              }
               ptrace(PTRACE_CONT, child,
                       NULL, NULL);
             }

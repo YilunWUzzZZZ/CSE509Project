@@ -35,7 +35,8 @@ void yyerror(const char *s)
 
 PolicyManager manager;
 string inputFile;
-string outputFile;
+string ptraceOutput = "ptrace_out.cpp";
+string seccompOutput = "seccomp_out.cpp";
 
 extern FILE* yyin;
 
@@ -52,14 +53,20 @@ parseOptions(int argc, char* argv[]) {
   if ((argc < 2)) {
     cerr << "Please specify a input file\n";
     return -1;
+  } 
+
+  if (argc >= 3) {
+    ptraceOutput = string(argv[2]);
   }
-  else {
-    inputFile.assign(argv[1], argv[1] + strlen(argv[1]));
-    return 0;
+  if (argc >= 4) {
+    seccompOutput = string(argv[3]);
   }
+  
+  inputFile.assign(argv[1], argv[1] + strlen(argv[1]));
+  
 
 
-  if (inputFile.length() == 0) 
+  if (!inputFile.length() || !ptraceOutput.length() || !seccompOutput.length()) 
     return -1;
 
   return 0;
@@ -111,7 +118,7 @@ main(int argc, char *argv[], char *envp[]) {
     return 0;
   }
 
-  manager.Print(cout);
+  // manager.Print(cout);
   CodeGenMgr mgr;
   manager.SetOutputs("./tests/bpf_out.c", "./tests/ptrace_out.c");
   manager.IRGen(mgr);

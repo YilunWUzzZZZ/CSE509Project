@@ -9,6 +9,7 @@
 #include <iostream>
 #include "code_template.h"
 // PolicyManager manager;
+bool DEBUG_ON = false;
 
 void Policy::Print(ostream & os, int indent) {
   if (type_ == PolicyType::DEFAULT_ALLOW) {
@@ -65,15 +66,30 @@ void SyscallCheck::CodeGen() {
 
 
   ColorCode(*CFG_, ptrace_bbs_, ptrace_only_bbs_);
-  for (auto p : ptrace_bbs_) {
-    cout << p.first->GetLabel() << " ";
-  }
-  cout << "\n";
-  for (auto p : ptrace_only_bbs_) {
-    cout << p.first->GetLabel() << " ";
-  }
+  // for (auto p : ptrace_bbs_) {
+  //   cout << p.first->GetLabel() << " ";
+  // }
+  // cout << "\n";
+  // for (auto p : ptrace_only_bbs_) {
+  //   cout << p.first->GetLabel() << " ";
+  // }
+  GetArgumentsInfo(SyscallNameToNr(syscall_), *args_, ptrace_bbs_, lifter);
   GenBPFIR(*CFG_, ptrace_only_bbs_, BPF_IR, *lifter);
+  lifter->interface_points_ = new set<string>();
+  set<string> local_labels;
+  for (auto bb: ptrace_bbs_) {
+    local_labels.insert(bb.first->GetLabel());
+  }
+  for (auto pt: ret_data_to_label) {
+    if (local_labels.count(pt)) {
+      lifter->interface_points_->insert(pt);
+    }
+  }
+  
   GenPtraceCode(*CFG_, ptrace_bbs_, *lifter);
+  lifter->GenCode();
+
+  // PrintCCode(cout, lifter->Code());
   list<BPF_Filter> *filters = BPFCodeGen(BPF_IR, &arg_index_, *lifter);
   bpf_filters_ = filters;
   lifter_ = lifter;
@@ -97,8 +113,10 @@ void PolicyManager::IRGen(CodeGenMgr & mgr) {
     if (p->Type() == Policy::SYSCALL_CHECK) {
       SyscallCheck* ck = (SyscallCheck*)p;
       ck->IRGen(mgr);
-      cerr << "\n";
-      ck->PrintIR();
+      if (DEBUG_ON) {
+        cerr << "\n";
+        ck->PrintIR();
+      }
     }
   }
 }
@@ -107,7 +125,9 @@ void PolicyManager::PtraceCodeGen() {
   vector<SyscallCheck*> checks;
   string ptrace_code;
   string jmp_table = "  void * jmp_table[] = {";
+  string start_table = "  void * start_table[] = {";
   bool has_ptrace = false;
+  unordered_map<string, string> label_2_check;
   for (auto p : policys_) {
     if (p->Type() == Policy::SYSCALL_CHECK) {
       SyscallCheck * check = (SyscallCheck*)p;
@@ -115,7 +135,9 @@ void PolicyManager::PtraceCodeGen() {
       if (check->ptrace_bbs_.size()) {
         has_ptrace = true;
       }
-     
+      for (auto pbb : check->ptrace_bbs_) {
+        label_2_check[pbb.first->GetLabel()] = check->syscall_;
+      }
     } 
   }
   if (!has_ptrace) {
@@ -124,26 +146,29 @@ void PolicyManager::PtraceCodeGen() {
   for (int i=0; i<ret_data_to_label.size(); i++) {
     if (i && i % 15 == 0) {
       jmp_table += "\n";
+      start_table += "\n";
     }
-    jmp_table += "&&" + ret_data_to_label[i] + ",";
+    string label = ret_data_to_label[i];
+    jmp_table += "&&" + label + ",";
+    start_table += "&&" + label_2_check[label] + "_start, ";
   }
   jmp_table += "};\n";
-  ptrace_code = ptrace_template_p1 + jmp_table + ptrace_template_p2;
+  start_table += "};\n";
+  ptrace_code = ptrace_template_p1 + jmp_table + start_table + ptrace_template_p2;
   string indent = "            ";
   for (auto check : checks) {
     auto & code = check->lifter_->Code();
     ptrace_code += indent + "{\n";
-    vector<string> prologue, epilogue;
-    GenPtracePrologueAndEpilogue(SyscallNameToNr(check->syscall_), *(check->args_), check->ptrace_bbs_, prologue, epilogue);
+    vector<string> prologue;
+    GenPtracePrologue(SyscallNameToNr(check->syscall_), *(check->args_), check->ptrace_bbs_, check->lifter_, prologue);
     for (auto & line: prologue) {
       ptrace_code += indent + line + "\n";
     }
+    ptrace_code += indent + "goto *jmp_table[seccomp_ret_data];\n";
     for (auto & line : code) {
       ptrace_code += "  " + indent + line + "\n";
     }
-     for (auto & line: epilogue) {
-      ptrace_code += indent + line + "\n";
-    }
+  
     ptrace_code += indent  + "}\n\n";
   }
   ptrace_code += ptrace_template_p3;
@@ -203,8 +228,10 @@ void PolicyManager::BPFCodeGen(bool default_deny) {
   final_filters.push_back({.opcode="BPF_RET | BPF_K",
                         .k = "SECCOMP_RET_KILL_PROCESS" ,
                         .type="BPF_STMT"});
-  for (auto & f: final_filters) {
-    cerr << StringfyBPF_Filter(f) << "\n"; 
+  if (DEBUG_ON) {
+    for (auto & f: final_filters) {
+      cerr << StringfyBPF_Filter(f) << "\n"; 
+    }
   }
   BPFTransformLabels(final_filters);
   // for (auto & f: final_filters) {

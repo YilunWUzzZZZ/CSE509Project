@@ -98,21 +98,20 @@ void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, l
         BPF_IR.push_back(i);
       }
     } else if(ptrace_only_blocks.count(bb) && ptrace_only_blocks[bb] != bb->FirstInst()) {
-      BPF_IR.push_back(new LabelInst(bb->GetLabel()));
-      auto end = ptrace_only_blocks[bb];
-      for (auto i : bb->Insts()) {
-        if (i == end) {
-          // transition point
+      // BPF_IR.push_back(new LabelInst(bb->GetLabel()));
+      // auto end = ptrace_only_blocks[bb];
+      // for (auto i : bb->Insts()) {
+      //   if (i == end) {
+      //     // transition point
           printf("Special Case encountered\n");
-          Instruction * ret = new ReturnInst(new Immediate<int>(RET_TO_PTRACE));
-          string l = lifter.GenInstLabel(end);
-          bpfret_to_ret_data[ret] = ret_data++;
-          ret_data_to_label.push_back(l);
-          BPF_IR.push_back(ret);
-          break;
-        }
-        BPF_IR.push_back(i);
-      } 
+      //     Instruction * ret = new ReturnInst(new Immediate<int>(RET_TO_PTRACE));
+      //     bpfret_to_ret_data[ret] = ret_data++;
+      //     ret_data_to_label.push_back(l);
+      //     BPF_IR.push_back(ret);
+      //     break;
+      //   }
+      //   BPF_IR.push_back(i);
+      // } 
       continue;
     } else if (ptrace_targets.count(bb)) {
       BPF_IR.push_back(new LabelInst(bb->GetLabel()));
@@ -135,23 +134,48 @@ void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, l
   }
 }
 
+void GetArgumentsInfo(int syscall_nr, vector<string> & args, PtraceBasicBlock &ptrace_blocks, IRLifter * lifter) {
+  SyscallInfo & info = syscall_infos[syscall_nr];
+  set<string> * string_args = new set<string>();
+  unordered_map<string, string> * mem_args_size = new unordered_map<string, string>();
+  unordered_map<string, string> *arg_types = new unordered_map<string, string>();
+  unordered_map<string, int> *arg_index = new unordered_map<string, int>();
+  for (int i=0; i<args.size(); i++) {
+    (*arg_index)[args[i]] = i;
+    string t = info.arg_types[i];
+    size_t pos = t.find("const ");
+    if ( pos != string::npos ) {
+      t = t.substr(pos + 6);
+    }
+    (*arg_types)[args[i]] = t;
+    if (t.find("char *") != string::npos) {
+      if (info.name == "read" || info.name == "write") {
+        (*mem_args_size)[args[i]] = "GET_ARG(" + to_string(i+1) +")";
+      } else 
+        string_args->insert(args[i]);
+    } else if (t[t.size()-1] == '*') {
+      (*mem_args_size)[args[i]] = "sizeof(" + t.substr(0, t.size()-1) +")"; 
+    }
+  }
+  lifter->string_args_ = string_args;
+  lifter->mem_args_size_ = mem_args_size;
+  lifter->arg_types_ = arg_types;
+  lifter->arg_index_ = arg_index;
 
-void GenPtracePrologueAndEpilogue(int syscall_nr, vector<string> & args, PtraceBasicBlock &ptrace_blocks,
-                                  vector<string> & prologue, vector<string> & epilogue) 
+}
+
+void GenPtracePrologue(int syscall_nr, vector<string> & args, PtraceBasicBlock &ptrace_blocks, IRLifter * lifter,
+                                  vector<string> & prologue) 
 { 
   SyscallInfo & info = syscall_infos[syscall_nr];
-  set<int> string_args;
   set<int> args_used;
   set<int> args_assigned;
   unordered_map<string, int> arg_index;
+
   for (int i=0; i<args.size(); i++) {
     arg_index[args[i]] = i;
   }
-  for (int i=0 ; i<info.num_args; i++) {
-    if (info.arg_types[i].find("const char *") != string::npos) {
-      string_args.insert(i);
-    }
-  }
+
   for (auto pair : ptrace_blocks) {
     auto bb = pair.first;
     for (auto inst : bb->Insts()) {
@@ -185,34 +209,45 @@ void GenPtracePrologueAndEpilogue(int syscall_nr, vector<string> & args, PtraceB
     }
   }
 
-  // Extract arguments
+  // Declare arguments
   for (int i=0; i<info.num_args; i++) {
     if (!args_used.count(i)) {
       continue;
     }
-    if (string_args.count(i)) {
-      prologue.push_back("char *" + args[i] + " = ptrace_copy_out_string(child, regs." + syscall_regs[i] + ");");
+    prologue.push_back(lifter->arg_types_->at(args[i]) + " " + args[i] +";");
+  }
+  // Extract arguments
+  prologue.push_back(info.name + "_start:");
+  for (int i=0; i<info.num_args; i++) {
+    if (!args_used.count(i)) {
+      continue;
+    }
+    if (lifter->string_args_->count(args[i])) {
+      prologue.push_back(args[i] + " = ptrace_copy_out_string(child,  GET_ARG("+ to_string(i) + "));");
+    } else if (lifter->mem_args_size_->count(args[i])) {
+      string sz = lifter->mem_args_size_->at(args[i]);
+      prologue.push_back(args[i] + " = ptrace_copy_out_mem(child,  GET_ARG("+ to_string(i) + "), " + sz + ");");
     } else {
-      prologue.push_back(info.arg_types[i] +  " " +  args[i] + " = regs." + syscall_regs[i] + ";");
+      prologue.push_back(args[i] + " = GET_ARG(" + to_string(i) + ");");
     }
   }
 
   // copy back arguments
-  bool non_mem_args_changed = false;
-  for (int i=0; i<info.num_args; i++) {
-    if (!args_assigned.count(i)) {
-      continue;
-    }
-    if (string_args.count(i)) {
-      epilogue.push_back("ptrace_copy_back_string(child, " + args[i] + ", regs." + syscall_regs[i] + ");");
-    } else {
-      epilogue.push_back("regs." + syscall_regs[i] + " = " + args[i] + ";");
-      non_mem_args_changed = true;
-    }
-  }
-  if (non_mem_args_changed) {
-    epilogue.push_back("ptrace(PTRACE_SETREGS, child, NULL, &regs);");
-  }
+  // bool non_mem_args_changed = false;
+  // for (int i=0; i<info.num_args; i++) {
+  //   if (!args_assigned.count(i)) {
+  //     continue;
+  //   }
+  //   if (string_args.count(i)) {
+  //     epilogue.push_back("ptrace_copy_back_string(child, " + args[i] + ", regs." + syscall_regs[i] + ");");
+  //   } else {
+  //     epilogue.push_back("regs." + syscall_regs[i] + " = " + args[i] + ";");
+  //     non_mem_args_changed = true;
+  //   }
+  // }
+  // if (non_mem_args_changed) {
+  //   epilogue.push_back("ptrace(PTRACE_SETREGS, child, NULL, &regs);");
+  
 
 }
 
@@ -223,16 +258,8 @@ void GenPtraceCode(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_blocks, I
     }
     Instruction * start = ptrace_blocks[bb];
     if (start != bb->FirstInst()) {
-      auto it = bb->Insts().begin();
-      while (*it != start) {
-        ++it;
-      }
-      lifter.LiftInst(start, lifter.GenInstLabel(start));
-      ++it;
-      while (it != bb->Insts().end()) {
-        lifter.LiftInst(*it, "");
-        ++it;
-      }
+      internalErr("unsupported case");
+      continue;
     } else {
       lifter.LiftBasicBlock(bb);
     }
