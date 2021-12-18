@@ -2226,5 +2226,8 @@ int SyscallNameToNr(const string & name) {
     }
     inited = true;
   }
-  return syscall_name_2_nr[name];
+  if (syscall_name_2_nr.count(name))
+    return syscall_name_2_nr[name];
+  else
+    return -1;
 }

@@ -101,18 +101,6 @@ void SyscallCheck::CodeGen() {
   list<BPF_Filter> *filters = BPFCodeGen(BPF_IR, &arg_index_, *lifter);
   bpf_filters_ = filters;
   lifter_ = lifter;
-  // cerr << "\n" << syscall_ << " BPF code: \n";
-  // for (auto & f: *filters) {
-  //   cerr << StringfyBPF_Filter(f) << "\n"; 
-  // }
-
-  // cerr << "\n" << syscall_ << " BPF IR: \n";
-  // for (auto inst: BPF_IR) {
-  //   cerr << inst->String() << "\n"; 
-  // }
-
-  // cerr << "\n" << syscall_ << " C code: \n";
-  // PrintCCode(cout, lifter->Code());
 
 }
 
@@ -166,6 +154,9 @@ void PolicyManager::PtraceCodeGen() {
   string indent = "            ";
   for (auto check : checks) {
     auto & code = check->lifter_->Code();
+    if (!code.size()) {
+      continue;
+    }
     ptrace_code += indent + "{\n";
     vector<string> prologue;
     GenPtracePrologue(SyscallNameToNr(check->syscall_), *(check->args_), check->ptrace_bbs_, check->lifter_, prologue);
@@ -267,6 +258,11 @@ void PolicyManager::CodeGen() {
   for (auto p : policys_) {
     if (p->Type() == Policy::SYSCALL_CHECK) {
       SyscallCheck * check = (SyscallCheck*)p;
+      //  terminate if the programer uses wrong syscall names
+      if (SyscallNameToNr(check->syscall_) == -1) {
+        fprintf(stderr, "Unrecognized syscall name: %s\n", check->syscall_.c_str());
+        exit(-1);
+      }
       check->CodeGen();
     } else if (p->Type() == Policy::DEFAULT_ALLOW) {
       default_deny = false;
