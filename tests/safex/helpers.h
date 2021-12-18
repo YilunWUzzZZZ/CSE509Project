@@ -8,6 +8,5 @@
 #define TRUE 1
 #define FALSE 0
 
-
 int protected_file(char *pathname);
 char* safex(char* pathname);

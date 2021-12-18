@@ -90,6 +90,15 @@ vector<string> ret_data_to_label;
 void GenBPFIR(vector<BasicBlock*> & CFG, PtraceBasicBlock &ptrace_only_blocks, list<Instruction*> & BPF_IR, IRLifter & lifter)
 {
   set<BasicBlock*> ptrace_targets;
+  // corner case: CFG only contain ptrace-only BBs
+  if (ptrace_only_blocks.count(CFG[0])) {
+    BPF_IR.push_back(new LabelInst(CFG[0]->GetLabel()));
+    Instruction * ret = new ReturnInst(new Immediate<int>(RET_TO_PTRACE));
+    bpfret_to_ret_data[ret] = ret_data++;
+    ret_data_to_label.push_back(CFG[0]->GetLabel());
+    BPF_IR.push_back(ret);
+    return;
+  }
   for (auto bb : CFG) {
     if (!ptrace_only_blocks.count(bb)) {
       // contains only BPF code
@@ -232,21 +241,6 @@ void GenPtracePrologue(int syscall_nr, vector<string> & args, PtraceBasicBlock &
     }
   }
 
-  // copy back arguments
-  // bool non_mem_args_changed = false;
-  // for (int i=0; i<info.num_args; i++) {
-  //   if (!args_assigned.count(i)) {
-  //     continue;
-  //   }
-  //   if (string_args.count(i)) {
-  //     epilogue.push_back("ptrace_copy_back_string(child, " + args[i] + ", regs." + syscall_regs[i] + ");");
-  //   } else {
-  //     epilogue.push_back("regs." + syscall_regs[i] + " = " + args[i] + ";");
-  //     non_mem_args_changed = true;
-  //   }
-  // }
-  // if (non_mem_args_changed) {
-  //   epilogue.push_back("ptrace(PTRACE_SETREGS, child, NULL, &regs);");
   
 
 }

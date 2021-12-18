@@ -174,7 +174,7 @@ int main(int argc, char ** argv)
               ptrace(PTRACE_CONT, child, NULL, NULL);
               continue;
             } else {
-              printf("Received request from seccomp\n");
+            //   printf("Received request from seccomp\n");
             }
 
             unsigned long seccomp_ret_data;

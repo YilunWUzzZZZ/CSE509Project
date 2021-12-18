@@ -54,7 +54,7 @@ char* safex(char* pathname)
 	strcpy(fname_from, pathname);
 	//printf("Filename passed %s\n", fname1);
 
-	static char template[] = "/tmp/tmpfXXXXXX";			// mkstemp filename template
+	static char template[] = "./tmp/tmpfXXXXXX";			// mkstemp filename template
 	char* fname_to;
 	fname_to = malloc(strlen(template));
 

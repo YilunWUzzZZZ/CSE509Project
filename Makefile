@@ -34,6 +34,9 @@ COMPILE.C = $(CXX) $(CXXFLAGS) $(DEPFLAGS) -c
 
 all: templates demo
 
+debug:
+	make 'CXXFLAGS=-g -Wall -O2  -std=c++11 -DDEBUG' 
+
 templates:
 	cd code_template && make && cd ..
 

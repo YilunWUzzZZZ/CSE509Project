@@ -61,7 +61,12 @@ main(int argc, char *argv[])
     if (install_filter())
         exit(EXIT_FAILURE);
 
-    execv(argv[1], &argv[1]);
-    perror("execv");
+    char *args[argc];
+    for (int i=0; i<argc-1; i++) {
+        args[i] = argv[i+1];
+    }
+    args[argc-1] = NULL;
+    execvp(argv[1], args);
+    perror("execvp");
     exit(EXIT_FAILURE);
 }

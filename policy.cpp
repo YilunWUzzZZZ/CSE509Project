@@ -9,7 +9,12 @@
 #include <iostream>
 #include "code_template.h"
 // PolicyManager manager;
-bool DEBUG_ON = false;
+
+#ifdef DEBUG
+bool DEBUG_ON=true;
+#else
+bool DEBUG_ON=false;
+#endif
 
 void Policy::Print(ostream & os, int indent) {
   if (type_ == PolicyType::DEFAULT_ALLOW) {
@@ -66,13 +71,16 @@ void SyscallCheck::CodeGen() {
 
 
   ColorCode(*CFG_, ptrace_bbs_, ptrace_only_bbs_);
-  // for (auto p : ptrace_bbs_) {
-  //   cout << p.first->GetLabel() << " ";
-  // }
-  // cout << "\n";
-  // for (auto p : ptrace_only_bbs_) {
-  //   cout << p.first->GetLabel() << " ";
-  // }
+  if (DEBUG_ON) {
+    for (auto p : ptrace_bbs_) {
+      cout << p.first->GetLabel() << " ";
+    }
+    cout << "\n";
+    for (auto p : ptrace_only_bbs_) {
+      cout << p.first->GetLabel() << " ";
+    }
+    cout << "\n";
+  }
   GetArgumentsInfo(SyscallNameToNr(syscall_), *args_, ptrace_bbs_, lifter);
   GenBPFIR(*CFG_, ptrace_only_bbs_, BPF_IR, *lifter);
   lifter->interface_points_ = new set<string>();
