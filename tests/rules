@@ -1,6 +1,19 @@
 deny all;
 
 def execve(pathname, argv, envp):
+	allow;
+
+
+def brk(addr):
+	allow;
+
+def pread64(fd, buf, count, offset):
+	allow;
+	
+def arch_prctl(code, addr):
+	allow;
+	
+def access(pathname, mode):
 if (safetoread_path(pathname)){
 	allow;
 }
@@ -8,29 +21,15 @@ else{
 	deny;
 }
 
-def brk(addr):
-	allow;
-	
-def arch_prctl(code, addr):
-	allow;
-	
-def access(pathname, mode):
-if ((mode & 0x4) && (safetoread_path(pathname))){
-	allow;
-}
-else{
-	deny;
-}
-
 def openat(dirfd, pathname, flags):
-if ((flags & 0x80000) && (safetoread_path(pathname))){
+if (flags & 0x80000){
 	allow;
 }
 else{
 	deny;
 }
 	
-def fstat(fd, statbuf):
+def fstat(fd, buf):
 	allow;
 	
 def close(fd):
@@ -43,52 +42,17 @@ def pread(fd, buf, count, offset):
 	allow;
 	
 def mmap(addr, length, prot, flags, fd, offset):
-if ((prot & 0x1)||(prot & 0x3)||(prot & 0x5)){
-	if ((flags & 0x2)||(flags & 0x22)||(flags & 0x32)||(flags & 0x802)||(flags & 0x812)){
-		allow;
-	}
-	else{
-		deny;
-	}
-}
-else{
-	deny;
-}
+	allow;
 
 def mprotect(addr, len, prot):
-if ((prot & 0x0)||(prot & 0x1)){
 	allow;
-}
-else{
-	deny;
-}
 	
 def munmap(addr, length):
 	allow;
 
-def socket(domain, type, protocol):
-if ((domain & 0x2) && (type & 0x1) && (protocol & 0x0)){
-	allow;
-}
-else{
-	deny;
-}
-
-def connect(sockfd, addr, addrlen):
-if (sockfd & 0x3){
-	allow;
-}
-else{
-	deny;
-}
 	
 def write(fd, buf, count):
 	allow;
 	
 def exit_group(status):
-if (status & 0x0){
 	allow;
-}
-else{
-	deny;
-}
