@@ -6,9 +6,9 @@ make
 
 [Important] Put all your headers used and all the declaration of helper functions in helpers.h
 
-gcc ptrace_output.cpp helpers.cpp -o sandbox
+gcc ptrace_output.cpp seccomp_output.cpp helpers.cpp -o sandbox
 
-# RUN
+# Run
 ./sandbox [app]
 
 # TODO
