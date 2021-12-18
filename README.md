@@ -6,13 +6,10 @@ make
 
 [Important] Put all your headers used and all the declaration of helper functions in helpers.h
 
-g++ seccomp_output.cpp -o seccomp -fpermissive
-
-
-g++ ptrace_output.cpp helpers.cpp -o ptrace -fpermissive
+gcc ptrace_output.cpp helpers.cpp -o sandbox
 
 # RUN
-./ptrace ./seccomp [app]
+./sandbox [app]
 
 # TODO
 Add automatic compilation

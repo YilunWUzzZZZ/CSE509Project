@@ -21,7 +21,7 @@ int DEBUG = 0;
 
 #define debug_print(...) do { if (DEBUG) fprintf(stderr, __VA_ARGS__); } while (0)
 
-
+extern int setup_seccomp();
 int deny = 1;
 int reg_modified  = 0;
 
@@ -134,8 +134,8 @@ int main(int argc, char ** argv)
 
 
     struct user_regs_struct regs;
-    if (argc < 3) {
-        printf("usage: tracer [seccomp] [prisoner_app] ... \n");
+    if (argc < 2) {
+        printf("usage: sandbox [prisoner_app] ... \n");
         exit(-1);
     }
     char * bin = argv[1];
@@ -149,8 +149,9 @@ int main(int argc, char ** argv)
     child = fork();
     if(child == 0) {
         ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        setup_seccomp();
         if (execvp(bin, args)) {
-            perror("execv:");
+            perror("execvp:");
         }
     } else {
         direct_child = child;

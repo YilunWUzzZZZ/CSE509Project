@@ -45,13 +45,13 @@ install_filter()
 }
 
 int
-main(int argc, char *argv[])
+setup_seccomp() //(int argc, char *argv[])
 {
-    if (argc < 2) {
-        fprintf(stderr, "Usage: "
-                "%s <prog> [<args>]\n", argv[0]);
-        exit(EXIT_FAILURE);
-    }
+    // if (argc < 2) {
+    //     fprintf(stderr, "Usage: "
+    //             "%s <prog> [<args>]\n", argv[0]);
+    //     exit(EXIT_FAILURE);
+    // }
 
     if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {
         perror("prctl");
@@ -60,13 +60,13 @@ main(int argc, char *argv[])
 
     if (install_filter())
         exit(EXIT_FAILURE);
-
-    char *args[argc];
-    for (int i=0; i<argc-1; i++) {
-        args[i] = argv[i+1];
-    }
-    args[argc-1] = NULL;
-    execvp(argv[1], args);
-    perror("execvp");
-    exit(EXIT_FAILURE);
+    return 0;
+    // char *args[argc];
+    // for (int i=0; i<argc-1; i++) {
+    //     args[i] = argv[i+1];
+    // }
+    // args[argc-1] = NULL;
+    // execvp(argv[1], args);
+    // perror("execvp");
+    // exit(EXIT_FAILURE);
 }
