@@ -1,0 +1,9 @@
+allow all;
+
+def openat(dirfd, pathname, flags):
+if (safetoread_path(pathname)){
+	allow;
+}
+else{
+	deny;
+}
