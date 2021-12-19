@@ -152,9 +152,13 @@ void GetArgumentsInfo(int syscall_nr, vector<string> & args, PtraceBasicBlock &p
   for (int i=0; i<args.size(); i++) {
     (*arg_index)[args[i]] = i;
     string t = info.arg_types[i];
-    size_t pos = t.find("const ");
-    if ( pos != string::npos ) {
-      t = t.substr(pos + 6);
+    size_t pos = t.find("const");
+    while ( pos != string::npos ) {
+      t.erase(pos, 5);
+      pos = t.find("const");
+    }
+    if (t[0] == ' ') {
+      t.erase(0, 1);
     }
     (*arg_types)[args[i]] = t;
     if (t.find("char *") != string::npos) {
