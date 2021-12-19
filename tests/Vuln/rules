@@ -1,6 +1,6 @@
 allow all;
 
-def execve(pathname, argv, envp):
+def openat(dirfd, pathname, flags):
 if (safetoread_path(pathname)){
 	allow;
 }
