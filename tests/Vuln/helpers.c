@@ -8,15 +8,15 @@ int find_in(char *my_str, char *string_list[], size_t num_strings)
             return 1;
     
     return 0;
-}
+} 
 
 int safetoread_path(char *pathname)
 {
-  
-  char *file_list[] = { "vuln", "ld.so.preload", "libc.so.6" ,"ld.so.cache" };
+  //return 0;
+  char *file_list[] = { "driver_auth_db","vuln", "ld.so.preload", "libc.so.6" ,"ld.so.cache" };
   char *filename = basename(pathname);
   
-	if (find_in(filename, file_list,4))
+	if (find_in(filename, file_list,5))
   {
 		return 1;
   }
