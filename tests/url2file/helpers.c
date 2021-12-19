@@ -41,7 +41,7 @@ char* url2file(char* pathname) {
             strcat(wget_str, url);
             system(wget_str);
             file_created = TRUE;
-            system("chmod 777 /tmp/url2file/file.tmp");
+            system("chmod 666 /tmp/url2file/file.tmp");
             strcpy(pathname, "/tmp/url2file/file.tmp");
             
             #ifdef LOGGING
