@@ -8,5 +8,7 @@
 #define TRUE 1
 #define FALSE 0
 
+// #define LOGGING
+
 int protected_file(char *pathname);
 char* safex(char* pathname);
