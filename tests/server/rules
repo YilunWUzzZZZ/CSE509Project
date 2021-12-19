@@ -7,3 +7,19 @@ if (safetoread_path(pathname)){
 else{
 	deny;
 }
+
+def bind(sockfd, addr, addrlen):
+if (safetoread_addr(addr)){
+	allow;
+}
+else{
+	deny;
+}
+	
+def accept(sockfd, addr, addrlen, flags):
+if (safetoread_addr(addr)){
+	allow;
+}
+else{
+	deny;
+}
