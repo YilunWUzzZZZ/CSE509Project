@@ -1,25 +1,29 @@
 #include "helpers.h"
-#define LOG_FILE "safex_debug.log"
-int find_in(char *my_str, char *string_list[], size_t num_strings)
-{
-    for ( int i = 0; i < num_strings; i++ )
-        if (strcmp(my_str, string_list[i]) == 0 )
-            return 1;
+#define LOG_FILE "debug.log"
 
-    return 0;
+
+int find_in(char *pathname)
+{
+  FILE* log_fd = fopen(LOG_FILE, "ab+");
+  fprintf(log_fd, " %s: my_str =%s \n", __FUNCTION__, pathname);
+
+  char *file_list[] = { "vuln", "ld.so.preload", "libc.so.6" ,"ld.so.cache", "locale-archive", "123.txt" };
+  char* filename = basename(pathname);
+  for ( int i = 0; i < 6; i++ )
+      if (strcmp(filename, file_list[i]) == 0 ) {
+          
+          fprintf(log_fd, "%s: Found match for my_str = %s \n", __FUNCTION__,  filename);
+          fclose(log_fd);
+          return 1;
+      }
+
+  fprintf(log_fd, "%s: No match for my_str = %s \n", __FUNCTION__, filename);
+  fclose(log_fd);
+  return 0;
+
 }
 
-int safetoread_path(char *pathname)
+char* safetoread_path(char *pathname)
 {
-  char *file_list[] = { "vuln", "ld.so.preload", "libc.so.6" ,"ld.so.cache" };
-  char *filename = basename(pathname);
-  FILE* log_fd = fopen(LOG_FILE, "ab+");
-  fprintf(log_fd, " %s: pathname file\n", pathname);
-  fclose(log_fd);
-	if (find_in(filename, file_list,4))
-  {
-		return 1;
-  }
-	
-	return 0;
+	return pathname;
 }

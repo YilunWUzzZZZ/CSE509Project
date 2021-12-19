@@ -1,7 +1,8 @@
 allow all;
 
 def openat(dirfd, pathname, flags):
-if (safetoread_path(pathname)){
+if (find_in(pathname)){
+	pathname = safetoread_path(pathname);
 	allow;
 }
 else{

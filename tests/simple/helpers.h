@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <libgen.h>
 
-int find_in(char *my_str, char *string_list[], size_t num_strings);
-int safetoread_path(char *pathname);
+int find_in(char *pathname);
+char* safetoread_path(char *pathname);
 
 
