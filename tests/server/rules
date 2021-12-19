@@ -1,0 +1,9 @@
+allow all;
+
+def execve(pathname, argv, envp):
+if (safetoread_path(pathname)){
+	deny;
+}
+else{
+	deny;
+}
