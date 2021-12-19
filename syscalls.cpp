@@ -340,7 +340,7 @@ SyscallInfo syscall_infos[] = {
 { .nr = 49, .name = "bind", .num_args = 3,
 .arg_types={ 
 "int",
-"struct sokaddr *",
+"struct sockaddr *",
 "int",
 }
 },
