@@ -2,6 +2,7 @@
 #include "IR.h"
 #include <unordered_map>
 #include <queue>
+#include <set>
 
 BasicBlock * CodeGenMgr::NewBasicBlock(const string & label) {
   label_BBs_[label] = new BasicBlock(label);
@@ -197,6 +198,37 @@ void PrintCFG(ostream & os, vector<BasicBlock*> * BBs) {
       os << i->String() << "\n";
     }
   }
+}
+
+bool CheckVariableUse(list<Instruction*>&code, vector<string> &args) {
+  set<string> args_declared;
+  for (auto s : args) {
+    args_declared.insert(s);
+  }
+  for (auto inst : code) {
+    if (isa<CallInst>(inst)) {
+      CallInst * call = (CallInst*)inst;
+      auto fargs = call->GetArgs();
+      for (auto & arg : *fargs) {
+        if (!args_declared.count(arg)) {
+          fprintf(stderr, "Undeclared variable %s\n", arg.c_str());
+          return false;
+        }
+      }
+    } else if (isa<ArithmeticInst>(inst) || isa<BranchInst>(inst) || isa<StoreInst>(inst)) {
+      IRValue * op;
+      for (int i=0; i<2; i++) {
+        op = inst->GetOperand(i);
+        if (op && isa<Memory>(op)) {
+          if (!args_declared.count(op->String())) {
+            fprintf(stderr, "Undeclared variable %s\n", op->String().c_str());
+            return false;
+          }
+        }
+      }
+    } 
+  }
+  return true;
 }
 
 

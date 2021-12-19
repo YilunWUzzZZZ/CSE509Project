@@ -53,6 +53,9 @@ void PolicyManager::Print(ostream & os, int indent) {
 
 void SyscallCheck::IRGen(CodeGenMgr & mgr) {
   stmts_->IRGen(IR_, mgr);
+  if (!CheckVariableUse(IR_, *args_)) {
+    exit(-1);
+  }
   MergeLabels(IR_);
   EliminateDeadCode(IR_);
   CFG_ = BuildCFG(IR_, mgr, syscall_);

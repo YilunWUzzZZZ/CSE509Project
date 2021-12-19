@@ -44,5 +44,5 @@ void MergeLabels(list<Instruction*>&code);
 void EliminateDeadCode(list<Instruction*>&code);
 vector<BasicBlock*> * BuildCFG(list<Instruction*>&code, CodeGenMgr & mgr, const string & syscall_name);
 void PrintCFG(ostream & os, vector<BasicBlock*> * BBs);
-
+bool CheckVariableUse(list<Instruction*>&code, vector<string> &args);
 #endif
