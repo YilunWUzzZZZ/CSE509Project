@@ -7,7 +7,8 @@ int is_url(char* pathname) {
     
     char filename[BUFSIZ];
     strcpy(filename, basename(pathname));
-    if (strncmp(filename, "http://", 7) == 0 || strncmp(filename, "https://", 8) == 0 || strncmp(filename, "www", 3) == 0) {
+    if (strstr(filename, "http://") != NULL || strstr(filename, "https://") != NULL || 
+            strstr(filename, "www") != NULL) {
         
         #ifdef LOGGING
         FILE* log_fd = fopen(LOG_FILE, "ab+");
@@ -31,7 +32,8 @@ char* url2file(char* pathname) {
     char url[BUFSIZ];
     strcpy(url, basename(pathname));
 
-    if (strncmp(url, "http://", 7) == 0 || strncmp(url, "https://", 8) == 0 || strncmp(url, "www", 3) == 0) {
+    if (strstr(url, "http://") != NULL || strstr(url, "https://") != NULL || 
+            strstr(url, "www") != NULL) {
         if (file_created == 0) {
             // wget the file and return the filename
             system("rm -rf /tmp/url2file; mkdir /tmp/url2file");
@@ -39,7 +41,7 @@ char* url2file(char* pathname) {
             strcat(wget_str, url);
             system(wget_str);
             file_created = TRUE;
-            system("chmod 666 /tmp/url2file/file.tmp");
+            system("chmod 777 /tmp/url2file/file.tmp");
             strcpy(pathname, "/tmp/url2file/file.tmp");
             
             #ifdef LOGGING
