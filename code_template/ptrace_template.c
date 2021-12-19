@@ -149,6 +149,7 @@ int main(int argc, char ** argv)
     child = fork();
     if(child == 0) {
         ptrace(PTRACE_TRACEME, 0, NULL, NULL);
+        raise(SIGSTOP);
         setup_seccomp();
         if (execvp(bin, args)) {
             perror("execvp:");
