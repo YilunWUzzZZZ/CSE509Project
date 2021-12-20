@@ -33,6 +33,60 @@ To run a program with the sandbox.
     ./sandbox [app] <args,...>
 
 
+# Language description
+
+This section provides a high level overview of the language we have defined and that 
+can be used with our compiler. 
+
+A sample example is shown below. 
+        
+        deny all;
+        def open ( x, y, z):
+            if ( x > 0 ) {
+                allow;
+            }
+        def close(y):
+            deny;
+
+In our language we start by first defining the default policy of our sandbox
+application, followed by the specific system calls that we want to intercept,
+and the associated logic for modification. In this simple example, we intercept
+all `open()` and `close()` calls made by the tracee and only allow the `open()`
+based on a specific condition.
+
+One important thing to note here is that the order of arguments being passed to 
+each system call should be preserved. Because our compiler uses code templates
+of all system calls to map the arguments, if the order or count of the arguments
+used in the language differs from the template it will lead to errors.
+
+
+Another example, shown below, is from the `tests/safex` implementation. 
+
+        allow all;
+
+        def openat(dirfd, pathname, flags):
+        if (protected_file(pathname)) {
+            pathname = safex(pathname);
+            allow;
+        }
+        else {
+            allow;
+        }
+
+This policy basically dictates that we allow the tracee program to make all
+the system calls, however we only intercept the `openat()` calls that it 
+makes. For every `openat()` call we check whether the file being accessed by 
+the tracee program is a protected file. Here the function `protected_file()` 
+is a helper function for our tracer and needs to be defined in the `helpers.c` 
+file. If the file is a protected file, the tracer creates a temporary copy
+of that file and passes it to the tracer, done using the helper function 
+`safex()`. 
+All other `openat()` calls made by the tracee to files that are not protected
+files are allowed by the tracer.
+
+***Note:** The formatting of the language needs to be consistent with
+the examples shown above.*
+
 # Demo programs
 
 We have added several demo programs to test our compiler with. All the demo
