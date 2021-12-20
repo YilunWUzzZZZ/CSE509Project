@@ -119,7 +119,7 @@ the webpage to `/tmp/url2file/file.tmp` and pass this file path to the applicati
 
 
 3.	`tests/chat`: a client/server program for chatting. With this test case, we want to
-show the capability of our language in generating ptrace and seccom rules and limit 
+show the capability of our language in generating ptrace and seccomp rules and limit 
 the system calls and arguments that each program(client/server) can call without 
 impacting on the functionalities.  
 ```
