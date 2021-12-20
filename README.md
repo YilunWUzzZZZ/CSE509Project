@@ -122,20 +122,23 @@ the webpage to `/tmp/url2file/file.tmp` and pass this file path to the applicati
 show the capability of our language in generating ptrace and seccom rules and limit 
 the system calls and arguments that each program(client/server) can call without 
 impacting on the functionalities.  
+```
         cd tests/chat
        ./build.sh
        ./sandbox ./client or ./server
-   
+```
 4.	`tests/exploit`: this part contains all exploits which are related to the exploit assignment.
 We can detect all exploits with applying two rules:
-    •	`A rule for write system call`: we limit using $ and % at the same time in the printf function with
+
+    -	**A rule for write system call**: we limit using $ and % at the same time in the printf function with
     checking it in the buf argument of write system call. 
-    •	`A rule for execve system call`: we check the pathname argument of execve to be in the allowed paths.
+    -	**A rule for execve system call**: we check the pathname argument of execve to be in the allowed paths.
     In this way, the attacker can not execute any other program. 
- 
+```
        cd tests/exploit
        ./build.sh
        ./sandbox ./driver_auth_db or ./driver_return2_helper or ./driver_return2_helper2 or ./driver_return2_injectedcode
+```
 
 
 # TODO
