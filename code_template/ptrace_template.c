@@ -207,7 +207,7 @@ out:
             if (deny) {
               printf("Killing offending process %d\n", child);
               kill(child, SIGKILL);
-              continue;
+              break;
             } else {
               if (reg_modified) {
                 if (regs.orig_rax & X32_SYSCALL_BIT) {
